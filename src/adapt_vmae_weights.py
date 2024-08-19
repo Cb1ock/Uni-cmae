@@ -43,7 +43,7 @@ additional_weight['norm_v.weight'] = mdl_weight['norm.weight'].detach().clone()
 additional_weight['norm_a.bias'] = mdl_weight['norm.bias'].detach().clone()
 additional_weight['norm_v.bias'] = mdl_weight['norm.bias'].detach().clone()
 
-mae_mdl = models.CAVMAE(modality_specific_depth=modal_specific_layer)
+mae_mdl = models.CAVMAE(encoder_depth=modal_specific_layer)
 
 miss, unexpect = mae_mdl.load_state_dict(mdl_weight, strict=False)
 miss_a, unexpect_a = mae_mdl.load_state_dict(additional_weight, strict=False)

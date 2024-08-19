@@ -12,10 +12,10 @@ import torch
 import torch.nn as nn
 import timm
 from timm.models.layers import to_2tuple, trunc_normal_, DropPath
-from timm.models.vision_transformer import Attention, Mlp, PatchEmbed, Block
+from timm.models.vision_transformer import Attention, Mlp
 from .pos_embed import get_2d_sincos_pos_embed
 
-class PatchEmbed(nn.Module):
+class Tokenizer_audio(nn.Module):
     def __init__(self, img_size=224, patch_size=16, in_chans=3, embed_dim=768):
         super().__init__()
 
@@ -30,6 +30,63 @@ class PatchEmbed(nn.Module):
 
     def forward(self, x):
         x = self.proj(x).flatten(2).transpose(1, 2)
+        return x
+class Tokenizer_video(nn.Module):
+    """Image to Patch Embedding"""
+
+    def __init__(
+        self,
+        img_size=224,
+        patch_size=16,
+        in_chans=3,
+        embed_dim=768,
+        # temporal related:
+        frames=32,
+        t_patch_size=4,
+    ):
+        super().__init__()
+        img_size = to_2tuple(img_size)
+        patch_size = to_2tuple(patch_size)
+        assert img_size[1] % patch_size[1] == 0
+        assert img_size[0] % patch_size[0] == 0
+        assert frames % t_patch_size == 0
+        num_patches = (
+            (img_size[1] // patch_size[1])
+            * (img_size[0] // patch_size[0])
+            * (frames // t_patch_size)
+        )
+        self.input_size = (
+            frames // t_patch_size,
+            img_size[0] // patch_size[0],
+            img_size[1] // patch_size[1],
+        )
+        print(
+            f"img_size {img_size} patch_size {patch_size} frames {frames} t_patch_size {t_patch_size}"
+        )
+        self.img_size = img_size
+        self.patch_size = patch_size
+
+        self.frames = frames
+        self.t_patch_size = t_patch_size
+
+        self.num_patches = num_patches
+
+        self.grid_size = img_size[0] // patch_size[0]
+        self.t_grid_size = frames // t_patch_size
+
+        kernel_size = [t_patch_size] + list(patch_size)
+        self.proj = nn.Conv3d(
+            in_chans, embed_dim, kernel_size=kernel_size, stride=kernel_size
+        )
+
+    def forward(self, x):
+        B, C, T, H, W = x.shape
+        assert (
+            H == self.img_size[0] and W == self.img_size[1]
+        ), f"Input image size ({H}*{W}) doesn't match model ({self.img_size[0]}*{self.img_size[1]})."
+        assert T == self.frames
+        x = self.proj(x).flatten(3)
+        x = torch.einsum("ncts->ntsc", x)  # [N, T, H*W, C]
         return x
 
 class Block(nn.Module):
@@ -66,7 +123,7 @@ class CAVMAE(nn.Module):
     """ CAV-MAE Model
     """
     def __init__(self, img_size=224, audio_length=1024, patch_size=16, in_chans=3,
-                 embed_dim=768, modality_specific_depth=11, num_heads=12,
+                 embed_dim=768, num_frames=16, t_patch_size=2, encoder_depth=12, num_heads=12,
                  decoder_embed_dim=512, decoder_depth=8, decoder_num_heads=16,
                  mlp_ratio=4., norm_layer=nn.LayerNorm, norm_pix_loss=False, tr_pos=False):
         super().__init__()
@@ -76,11 +133,10 @@ class CAVMAE(nn.Module):
 
         # the encoder part
         # overide the timm package
-        timm.models.vision_transformer.PatchEmbed = PatchEmbed
-        timm.models.vision_transformer.Block = Block
+        
 
-        self.patch_embed_a = PatchEmbed(img_size, patch_size, 1, embed_dim)
-        self.patch_embed_v = PatchEmbed(img_size, patch_size, in_chans, embed_dim)
+        self.patch_embed_a = Tokenizer_audio(img_size, patch_size, 1, embed_dim)
+        self.patch_embed_v = Tokenizer_video(img_size, patch_size, in_chans, embed_dim, num_frames, t_patch_size)
 
         self.patch_embed_a.num_patches = int(audio_length * 128 / 256)
         print('Number of Audio Patches: {:d}, Visual Patches: {:d}'.format(self.patch_embed_a.num_patches, self.patch_embed_v.num_patches))
@@ -92,11 +148,11 @@ class CAVMAE(nn.Module):
         self.pos_embed_v = nn.Parameter(torch.zeros(1, self.patch_embed_v.num_patches, embed_dim), requires_grad=tr_pos)  # fixed sin-cos embedding
 
         # audio-branch
-        self.blocks_a = nn.ModuleList([Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, qk_scale=None, norm_layer=norm_layer) for i in range(modality_specific_depth)])
+        self.blocks = nn.ModuleList([Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, qk_scale=None, norm_layer=norm_layer) for i in range(encoder_depth)])
         # visual-branch
-        self.blocks_v = nn.ModuleList([Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, qk_scale=None, norm_layer=norm_layer) for i in range(modality_specific_depth)])
-        # unified branch
-        self.blocks_u = nn.ModuleList([Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, qk_scale=None, norm_layer=norm_layer) for i in range(12-modality_specific_depth)])
+        # self.blocks_v = nn.ModuleList([Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, qk_scale=None, norm_layer=norm_layer) for i in range(modality_specific_depth)])
+        # # unified branch
+        # self.blocks_u = nn.ModuleList([Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, qk_scale=None, norm_layer=norm_layer) for i in range(12-modality_specific_depth)])
 
         # independent normalization layer for audio, visual, and audio-visual
         self.norm_a, self.norm_v, self.norm = norm_layer(embed_dim), norm_layer(embed_dim), norm_layer(embed_dim)
@@ -178,7 +234,25 @@ class CAVMAE(nn.Module):
         x = torch.einsum('nchpwq->nhwpqc', x)
         x = x.reshape(shape=(imgs.shape[0], h * w, p ** 2 * c))
         return x
+    
+    def video_patchify(self, imgs):
+        """
+        imgs: (N, 3, H, W)
+        x: (N, L, patch_size**2 *3)
+        """
+        N, _, T, H, W = imgs.shape
+        p = self.patch_embed.patch_size[0]
+        u = self.t_pred_patch_size
+        assert H == W and H % p == 0 and T % u == 0
+        h = w = H // p
+        t = T // u
 
+        x = imgs.reshape(shape=(N, 3, t, u, h, p, w, p))
+        x = torch.einsum("nctuhpwq->nthwupqc", x)
+        x = x.reshape(shape=(N, t * h * w, u * p**2 * 3))
+        self.patch_info = (N, T, H, W, p, u, t, h, w)
+        return x
+    
     def unpatchify(self, x, c, h, w, p=16):
         """
         x: (N, L, patch_size**2 *3)
@@ -191,7 +265,7 @@ class CAVMAE(nn.Module):
         imgs = x.reshape(shape=(x.shape[0], c, h * p, w * p))
         return imgs
 
-    def random_masking_unstructured(self, x, mask_ratio):
+    def random_masking(self, x, mask_ratio):
         """
         Perform per-sample random masking by per-sample shuffling.
         Per-sample shuffling is done by argsort random noise.
@@ -218,55 +292,6 @@ class CAVMAE(nn.Module):
 
         return x_masked, mask, ids_restore
 
-    def random_masking_structured(self, x, mask_ratio, t=64, f=8, mode='time'):
-        """
-        Perform per-sample random masking by per-sample shuffling.
-        Per-sample shuffling is done by argsort random noise.
-        x: [N, L, D], sequence
-        """
-        N, L, D = x.shape  # batch, length, dim
-        len_keep = int(L * (1 - mask_ratio))
-
-        noise = torch.rand(N, L, device=x.device)  # noise in [0, 1]
-        assert L == f * t
-        noise = noise.reshape(N, f, t) # the audio patch is in shape [f,t], not [t,f]
-        if mode == 'time':
-            for i in range(N):
-                mask_t_list = random.sample(range(t), int(t * mask_ratio))
-                for k in mask_t_list:
-                    noise[i, :, k] = 1.1  # large value will be removed
-        elif mode == 'freq':
-            for i in range(N):
-                mask_f_list = random.sample(range(f), int(f * mask_ratio))
-                for k in mask_f_list:
-                    noise[i, k, :] = 1.1  # large value will be removed
-        elif mode == 'tf':
-            for i in range(N):
-                mask_t_list = random.sample(range(t), int(t * mask_ratio * 0.7))
-                for k in mask_t_list:
-                    noise[i, :, k] = 1.1  # large value will be removed
-            for i in range(N):
-                mask_f_list = random.sample(range(f), int(f * mask_ratio * 0.7))
-                for k in mask_f_list:
-                    noise[i, k, :] = 1.1  # large value will be removed
-        noise = noise.reshape(N, L)
-
-        # sort noise for each sample, only need to manuplate these two ids_shuffle, ids_restore
-        ids_shuffle = torch.argsort(noise, dim=1)  # ascend: small is keep, large is remove
-        ids_restore = torch.argsort(ids_shuffle, dim=1)
-
-        # keep the first subset
-        ids_keep = ids_shuffle[:, :len_keep]
-        x_masked = torch.gather(x, dim=1, index=ids_keep.unsqueeze(-1).repeat(1, 1, D))
-
-        # generate the binary mask: 0 is keep, 1 is remove
-        mask = torch.ones([N, L], device=x.device)
-        mask[:, :len_keep] = 0
-        # unshuffle to get the binary mask
-        mask = torch.gather(mask, dim=1, index=ids_restore)
-
-        return x_masked, mask, ids_restore
-
     def forward_encoder(self, a, v, mask_ratio_a, mask_ratio_v, mask_mode='unstructured'):
         # embed patches
         a = a.unsqueeze(1)
@@ -276,44 +301,46 @@ class CAVMAE(nn.Module):
         a = a + self.modality_a
 
         v = self.patch_embed_v(v)
+        B, T, L, D = v.shape
+        v = v.view(B, T*L, D)
         v = v + self.pos_embed_v
         v = v + self.modality_v
 
         # by default, we always use unstructured masking
-        if mask_mode == 'unstructured':
-            a, mask_a, ids_restore_a = self.random_masking_unstructured(a, mask_ratio_a)
-        # in ablation study, we tried time/freq/tf masking. mode in ['freq', 'time', 'tf']
-        else:
-            a, mask_a, ids_restore_a = self.random_masking_structured(a, mask_ratio_a, t=64, f=8, mode=mask_mode)
-
+        a, mask_a, ids_restore_a = self.random_masking(a, mask_ratio_a)
+        
         # visual branch always use unstructured masking
-        v, mask_v, ids_restore_v = self.random_masking_unstructured(v, mask_ratio_v)
+        v, mask_v, ids_restore_v = self.random_masking(v, mask_ratio_v)
 
-        # audio and visual stream, independent blocks
-        for blk in self.blocks_a:
-            a = blk(a)
-
-        for blk in self.blocks_v:
-            v = blk(v)
+        # NOTE:shared MHSA and MLP, but independent normalization layers
+        # choice 1
+        for blk in self.blocks:
+            a = blk(a, 'a')       
+            v = blk(v, 'v')
+        # choice 2
+        # for blk in self.blocks:
+        #     a = blk(a)
+        # for blk in self.blocks:
+        #     v = blk(v)
 
         x = torch.cat((a, v), dim=1)
 
         # unified stream, shared blocks_u, but independent normalization layers
-        for blk in self.blocks_u:
-            x = blk(x)
+        # for blk in self.blocks_u:
+        #     x = blk(x)
         x = self.norm(x)
 
-        for blk in self.blocks_u:
-            ca = blk(a, 'a')
-        ca = self.norm_a(ca)
+        # for blk in self.blocks_u:
+        #     ca = blk(a, 'a')
+        ca = self.norm_a(a)
 
-        for blk in self.blocks_u:
-            cv = blk(v, 'v')
-        cv = self.norm_v(cv)
+        # for blk in self.blocks_u:
+        #     cv = blk(v, 'v')
+        cv = self.norm_v(v)
 
         return x, mask_a, ids_restore_a, mask_v, ids_restore_v, ca, cv
 
-    def forward_decoder(self, x, mask_a, ids_restore_a, mask_v, ids_restore_v):
+    def forward_decoder(self, x, mask_a, ids_restore_a, mask_v, ids_restore_v): # TODO：
 
         x = self.decoder_embed(x)
 
@@ -374,24 +401,54 @@ class CAVMAE(nn.Module):
 
     def forward_mae_loss(self, input, pred, mask, modality):
         if modality == 'a':
-            # for audio, need to adjust the shape
-            input = input.unsqueeze(1)
-            input = input.transpose(2, 3)
-            target = self.patchify(input, 1, int(input.shape[2]/self.patch_embed_a.patch_size[0]), int(input.shape[3]/self.patch_embed_a.patch_size[1]), 16)
-        elif modality == 'v':
-            target = self.patchify(input, 3, int(input.shape[2]/self.patch_embed_v.patch_size[0]), int(input.shape[3]/self.patch_embed_v.patch_size[1]), 16)
+            if modality == 'a':
+                # for audio, need to adjust the shape
+                input = input.unsqueeze(1)
+                input = input.transpose(2, 3)
+                target = self.patchify(input, 1, int(input.shape[2]/self.patch_embed_a.patch_size[0]), int(input.shape[3]/self.patch_embed_a.patch_size[1]), 16)
+            elif modality == 'v':
+                target = self.patchify(input, 3, int(input.shape[2]/self.patch_embed_v.patch_size[0]), int(input.shape[3]/self.patch_embed_v.patch_size[1]), 16)
 
-        # patch-wise normalization might minorly improve the classification performance, but will make the model lose inpainting function
-        if self.norm_pix_loss:
-            mean = target.mean(dim=-1, keepdim=True)
-            var = target.var(dim=-1, keepdim=True)
-            target = (target - mean) / (var + 1.e-6) ** .5
+            # patch-wise normalization might minorly improve the classification performance, but will make the model lose inpainting function
+            if self.norm_pix_loss:
+                mean = target.mean(dim=-1, keepdim=True)
+                var = target.var(dim=-1, keepdim=True)
+                target = (target - mean) / (var + 1.e-6) ** .5
 
-        loss = (pred - target) ** 2
-        loss = loss.mean(dim=-1)  # [N, L], mean loss per patch
+            loss = (pred - target) ** 2
+            loss = loss.mean(dim=-1)  # [N, L], mean loss per patch
 
-        loss = (loss * mask).sum() / mask.sum()  # mean loss on removed patches
-        return loss
+            loss = (loss * mask).sum() / mask.sum()  # mean loss on removed patches
+            return loss
+        if modality == 'v':
+            """
+            imgs: [N, 3, T, H, W]
+            pred: [N, t*h*w, u*p*p*3]
+            mask: [N*t, h*w], 0 is keep, 1 is remove,
+            """
+            _input = torch.index_select(
+                input,
+                2,
+                torch.linspace(
+                    0,
+                    input.shape[2] - 1,
+                    self.pred_t_dim,
+                )
+                .long()
+                .to(input.device),
+            )
+            target = self.video_patchify(_input)
+            if self.norm_pix_loss:
+                mean = target.mean(dim=-1, keepdim=True)
+                var = target.var(dim=-1, keepdim=True)
+                target = (target - mean) / (var + 1.0e-6) ** 0.5
+
+            loss = (pred - target) ** 2
+            loss = loss.mean(dim=-1)  # [N, L], mean loss per patch
+            mask = mask.view(loss.shape)
+
+            loss = (loss * mask).sum() / mask.sum()  # mean loss on removed patches
+            return loss
 
     def forward(self, audio, imgs, mask_ratio_a=0.75, mask_ratio_v=0.75, mae_loss_weight=1., contrast_loss_weight=0.01, mask_mode='unstructured'):
         # latent is used for reconstruction (mae), latent_c_{a,v} are used for contrastive learning
@@ -463,11 +520,11 @@ class CAVMAEFT(nn.Module):
         timm.models.vision_transformer.Block = Block
         print('Use norm_pix_loss: ', norm_pix_loss)
 
-        timm.models.vision_transformer.PatchEmbed = PatchEmbed
+        timm.models.vision_transformer.PatchEmbed = Tokenizer_audio
         timm.models.vision_transformer.Block = Block
 
-        self.patch_embed_a = PatchEmbed(img_size, patch_size, 1, embed_dim)
-        self.patch_embed_v = PatchEmbed(img_size, patch_size, in_chans, embed_dim)
+        self.patch_embed_a = Tokenizer_audio(img_size, patch_size, 1, embed_dim)
+        self.patch_embed_v = Tokenizer_audio(img_size, patch_size, in_chans, embed_dim)
 
         self.patch_embed_a.num_patches = int(audio_length * 128 / 256)
         print('Number of Audio Patches: {:d}, Visual Patches: {:d}'.format(self.patch_embed_a.num_patches, self.patch_embed_v.num_patches))

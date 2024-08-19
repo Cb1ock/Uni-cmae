@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*- # @Author: hao cheng  # @Date: 2024-08-19 13:37:23  # @Last Modified by:   hao cheng  # @Last Modified time: 2024-08-19 13:37:23 # -*- coding: utf-8 -*- # @Author: hao cheng  # @Date: 2024-08-19 13:37:21  # @Last Modified by:   hao cheng  # @Last Modified time: 2024-08-19 13:37:21 # -*- coding: utf-8 -*-
 # @Time    : 6/19/21 12:23 AM
 # @Author  : Yuan Gong
 # @Affiliation  : Massachusetts Institute of Technology
@@ -133,17 +133,17 @@ class AudiosetDataset(Dataset):
     # change python list to numpy array to avoid memory leak.
     def pro_data(self, data_json):
         for i in range(len(data_json)):
-            data_json[i] = [data_json[i]['wav'], data_json[i]['labels'], data_json[i]['video_id'], data_json[i]['video_path']]
+            data_json[i] = [data_json[i]['wav'], data_json[i]['labels'], data_json[i]['id'], data_json[i]['video_path']]
         data_np = np.array(data_json, dtype=str)
         return data_np
 
     # reformat numpy data to original json format, make it compatible with old code
     def decode_data(self, np_data):
         datum = {}
-        datum['wav'] = np_data[0]
-        datum['labels'] = np_data[1]
-        datum['video_id'] = np_data[2]
-        datum['video_path'] = np_data[3]
+        datum['id'] = np_data[0]
+        datum['wav'] = np_data[1]
+        datum['video_path'] = np_data[2]
+        datum['labels'] = np_data[3]
         return datum
 
     def get_image(self, filename, filename2=None, mix_lambda=1):
@@ -225,9 +225,10 @@ class AudiosetDataset(Dataset):
         return out_path
 
     def __getitem__(self, index):
+        datum = self.data[index]
+        datum = self.decode_data(datum)
+        print(datum)
         if random.random() < self.mixup:
-            datum = self.data[index]
-            datum = self.decode_data(datum)
             mix_sample_idx = random.randint(0, self.num_samples-1)
             mix_datum = self.data[mix_sample_idx]
             mix_datum = self.decode_data(mix_datum)
@@ -251,8 +252,6 @@ class AudiosetDataset(Dataset):
             label_indices = torch.FloatTensor(label_indices)
 
         else:
-            datum = self.data[index]
-            datum = self.decode_data(datum)
             # label smooth for negative samples, epsilon/label_num
             label_indices = np.zeros(self.label_num) + (self.label_smooth / self.label_num)
             try:
