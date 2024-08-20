@@ -1,5 +1,4 @@
 *.pth
-*.csv
 *.pdf
 *.pptx
 *.mp4
@@ -30,3 +29,4 @@ egs/audioset/run_cavmae_ft_bal_audioonly_internal.sh
 egs/vggsound/run_cavmae_ft_audioonly_internal.sh
 *.pyc
 **__pycache__**
+egs/voxceleb2/exp/**

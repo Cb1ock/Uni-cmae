@@ -70,7 +70,7 @@ parser.add_argument("--mask_mode", type=str, default='unstructured', help="maski
 
 args = parser.parse_args()
 
-im_res = 224
+im_res = 160
 audio_conf = {'num_mel_bins': 128, 'target_length': args.target_length, 'freqm': 0, 'timem': 0, 'mixup': args.mixup, 'dataset': args.dataset, 'mode':'train', 'mean':args.dataset_mean, 'std':args.dataset_std,
               'noise':args.noise, 'label_smooth': 0, 'im_res': im_res}
 val_audio_conf = {'num_mel_bins': 128, 'target_length': args.target_length, 'freqm': 0, 'timem': 0, 'mixup': 0, 'dataset': args.dataset,
@@ -105,19 +105,37 @@ if args.data_eval != None:
         batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True, drop_last=True)
 
 if args.model == 'cav-mae':
-    print('pretrain a cav-mae model with 11 modality-specific layers and 1 modality-sharing layers')
-    audio_model = models.CAVMAE(audio_length=args.target_length, norm_pix_loss=args.norm_pix_loss, modality_specific_depth=11, tr_pos=args.tr_pos)
+    print('pretrain a uni model with 12 layers')
+    audio_model = models.CAVMAE(img_size=im_res, audio_length=args.target_length, norm_pix_loss=args.norm_pix_loss, encoder_depth=12, tr_pos=args.tr_pos)
 else:
     raise ValueError('model not supported')
 
 # initialized with a pretrained checkpoint (e.g., original vision-MAE checkpoint)
 if args.pretrain_path != 'None':
     mdl_weight = torch.load(args.pretrain_path, map_location=torch.device('cpu'))
+    # 处理键名不匹配问题
+    new_state_dict = {}
+    for k, v in mdl_weight.items():
+        if not k.startswith('module.'):
+            k = 'module.' + k
+        new_state_dict[k] = v
     if not isinstance(audio_model, torch.nn.DataParallel):
         audio_model = torch.nn.DataParallel(audio_model)
-    miss, unexpected = audio_model.load_state_dict(mdl_weight, strict=False)
+    
+    # 加载状态字典并跳过形状不匹配或不存在的参数
+    model_dict = audio_model.state_dict()
+    for name, param in new_state_dict.items():
+        if name in model_dict:
+            if model_dict[name].shape != param.shape:
+                print(f"Skipping parameter {name} due to shape mismatch: {param.shape} vs {model_dict[name].shape}")
+                continue
+            model_dict[name].copy_(param)
+        else:
+            print(f"Skipping parameter {name} as it does not exist in the model")
+    msg = audio_model.load_state_dict(model_dict, strict=False)
+    
     print('now load mae pretrained weights from ', args.pretrain_path)
-    print(miss, unexpected)
+    print(msg)
 
 # if args.cont_model != None:
 #     print('now load pretrained weights from : ' + args.cont_model)

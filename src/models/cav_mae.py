@@ -41,7 +41,7 @@ class Tokenizer_video(nn.Module):
         in_chans=3,
         embed_dim=768,
         # temporal related:
-        frames=32,
+        frames=16,
         t_patch_size=4,
     ):
         super().__init__()
@@ -125,7 +125,7 @@ class CAVMAE(nn.Module):
     def __init__(self, img_size=224, audio_length=1024, patch_size=16, in_chans=3,
                  embed_dim=768, num_frames=16, t_patch_size=2, encoder_depth=12, num_heads=12,
                  decoder_embed_dim=512, decoder_depth=8, decoder_num_heads=16,
-                 mlp_ratio=4., norm_layer=nn.LayerNorm, norm_pix_loss=False, tr_pos=False):
+                 mlp_ratio=4., norm_layer=nn.LayerNorm, norm_pix_loss=False, tr_pos=False,pred_t_dim=8):
         super().__init__()
         print('A CAV-MAE Model')
         print('Use norm_pix_loss: ', norm_pix_loss)
@@ -134,6 +134,8 @@ class CAVMAE(nn.Module):
         # the encoder part
         # overide the timm package
         
+        self.pred_t_dim = pred_t_dim
+        self.t_pred_patch_size = t_patch_size * pred_t_dim // num_frames
 
         self.patch_embed_a = Tokenizer_audio(img_size, patch_size, 1, embed_dim)
         self.patch_embed_v = Tokenizer_video(img_size, patch_size, in_chans, embed_dim, num_frames, t_patch_size)
@@ -190,13 +192,13 @@ class CAVMAE(nn.Module):
         pos_embed_a = get_2d_sincos_pos_embed(self.pos_embed_a.shape[-1], 8, int(self.patch_embed_a.num_patches/8), cls_token=False)
         self.pos_embed_a.data.copy_(torch.from_numpy(pos_embed_a).float().unsqueeze(0))
 
-        pos_embed_v = get_2d_sincos_pos_embed(self.pos_embed_v.shape[-1], int(self.patch_embed_v.num_patches ** .5), int(self.patch_embed_v.num_patches ** .5), cls_token=False)
+        pos_embed_v = get_2d_sincos_pos_embed(self.pos_embed_v.shape[-1], int(self.patch_embed_v.num_patches /28), int(self.patch_embed_v.num_patches /56), cls_token=False)
         self.pos_embed_v.data.copy_(torch.from_numpy(pos_embed_v).float().unsqueeze(0))
 
         decoder_pos_embed_a = get_2d_sincos_pos_embed(self.decoder_pos_embed_a.shape[-1], 8, int(self.patch_embed_a.num_patches/8), cls_token=False)
         self.decoder_pos_embed_a.data.copy_(torch.from_numpy(decoder_pos_embed_a).float().unsqueeze(0))
 
-        decoder_pos_embed_v = get_2d_sincos_pos_embed(self.decoder_pos_embed_v.shape[-1], int(self.patch_embed_v.num_patches ** .5), int(self.patch_embed_v.num_patches ** .5), cls_token=False)
+        decoder_pos_embed_v = get_2d_sincos_pos_embed(self.decoder_pos_embed_v.shape[-1], int(self.patch_embed_v.num_patches /28), int(self.patch_embed_v.num_patches /56), cls_token=False)
         self.decoder_pos_embed_v.data.copy_(torch.from_numpy(decoder_pos_embed_v).float().unsqueeze(0))
 
         # initialize patch_embed like nn.Linear (instead of nn.Conv2d)
@@ -241,7 +243,7 @@ class CAVMAE(nn.Module):
         x: (N, L, patch_size**2 *3)
         """
         N, _, T, H, W = imgs.shape
-        p = self.patch_embed.patch_size[0]
+        p = self.patch_embed_v.patch_size[0]
         u = self.t_pred_patch_size
         assert H == W and H % p == 0 and T % u == 0
         h = w = H // p
@@ -315,7 +317,7 @@ class CAVMAE(nn.Module):
         # NOTE:shared MHSA and MLP, but independent normalization layers
         # choice 1
         for blk in self.blocks:
-            a = blk(a, 'a')       
+            a = blk(a, 'a')
             v = blk(v, 'v')
         # choice 2
         # for blk in self.blocks:
@@ -332,7 +334,7 @@ class CAVMAE(nn.Module):
 
         # for blk in self.blocks_u:
         #     ca = blk(a, 'a')
-        ca = self.norm_a(a)
+        ca = self.norm_a(a) # NOTE:由于ca实际上只参与contrastive loss的计算，所以后续并不会进入decoder，也就不会更新这个norm的参数
 
         # for blk in self.blocks_u:
         #     cv = blk(v, 'v')
@@ -340,7 +342,7 @@ class CAVMAE(nn.Module):
 
         return x, mask_a, ids_restore_a, mask_v, ids_restore_v, ca, cv
 
-    def forward_decoder(self, x, mask_a, ids_restore_a, mask_v, ids_restore_v): # TODO：
+    def forward_decoder(self, x, mask_a, ids_restore_a, mask_v, ids_restore_v): 
 
         x = self.decoder_embed(x)
 

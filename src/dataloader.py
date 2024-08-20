@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*- # @Author: hao cheng  # @Date: 2024-08-19 13:37:23  # @Last Modified by:   hao cheng  # @Last Modified time: 2024-08-19 13:37:23 # -*- coding: utf-8 -*- # @Author: hao cheng  # @Date: 2024-08-19 13:37:21  # @Last Modified by:   hao cheng  # @Last Modified time: 2024-08-19 13:37:21 # -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*- # @Author: hao cheng  # @Date: 2024-08-21 02:40:45  # @Last Modified by:   hao cheng  # @Last Modified time: 2024-08-21 02:40:45 # -*- coding: utf-8 -*- # @Author: hao cheng  # @Date: 2024-08-19 13:37:23  # @Last Modified by:   hao cheng  # @Last Modified time: 2024-08-19 13:37:23 # -*- coding: utf-8 -*- # @Author: hao cheng  # @Date: 2024-08-19 13:37:21  # @Last Modified by:   hao cheng  # @Last Modified time: 2024-08-19 13:37:21 # -*- coding: utf-8 -*-
 # @Time    : 6/19/21 12:23 AM
 # @Author  : Yuan Gong
 # @Affiliation  : Massachusetts Institute of Technology
@@ -12,7 +12,7 @@
 import csv
 import json
 import os.path
-
+import cv2
 import torchaudio
 import numpy as np
 import torch
@@ -133,7 +133,7 @@ class AudiosetDataset(Dataset):
     # change python list to numpy array to avoid memory leak.
     def pro_data(self, data_json):
         for i in range(len(data_json)):
-            data_json[i] = [data_json[i]['wav'], data_json[i]['labels'], data_json[i]['id'], data_json[i]['video_path']]
+            data_json[i] = [data_json[i]['id'], data_json[i]['wav'], data_json[i]['video_path'], data_json[i]['labels']]
         data_np = np.array(data_json, dtype=str)
         return data_np
 
@@ -146,20 +146,52 @@ class AudiosetDataset(Dataset):
         datum['labels'] = np_data[3]
         return datum
 
-    def get_image(self, filename, filename2=None, mix_lambda=1):
-        if filename2 == None:
-            img = Image.open(filename)
-            image_tensor = self.preprocess(img)
-            return image_tensor
+    def get_video(self, filename, filename2=None, mix_lambda=1):
+        im_res=self.im_res
+        def sample_frames(video_path, num_frames, target_size):
+            cap = cv2.VideoCapture(video_path)
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            frame_indices = np.linspace(0, total_frames - 1, num_frames, dtype=int)
+            frames = []
+
+            # 根据 image_size 设置裁剪索引
+            if im_res == 192:
+                crop_idxs = ((0, 192), (16, 208))
+                #print(f"==> Note: use crop_idxs={crop_idxs} for VoxCeleb2!!!")
+            elif im_res <= 160:
+                crop_idxs = ((0, 160), (32, 192))
+                #print(f"==> Note: use crop_idxs={crop_idxs} for VoxCeleb2!!!")
+            else:
+                raise ValueError("Unsupported image size")
+
+            for idx in frame_indices:
+                cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                frame = Image.fromarray(frame)
+                frame = frame.resize((target_size, target_size), Image.BILINEAR)
+                
+                # 裁剪图像
+                frame = frame.crop((crop_idxs[0][0], crop_idxs[1][0], crop_idxs[0][1], crop_idxs[1][1]))
+                
+                frame = self.preprocess(frame)
+                frames.append(frame)
+
+            cap.release()
+            return torch.stack(frames)
+
+        if filename2 is None:
+            frames = sample_frames(filename, 16, self.im_res)
         else:
-            img1 = Image.open(filename)
-            image_tensor1 = self.preprocess(img1)
+            frames1 = sample_frames(filename, 16, self.im_res)
+            frames2 = sample_frames(filename2, 16, self.im_res)
+            frames = mix_lambda * frames1 + (1 - mix_lambda) * frames2
 
-            img2 = Image.open(filename2)
-            image_tensor2 = self.preprocess(img2)
-
-            image_tensor = mix_lambda * image_tensor1 + (1 - mix_lambda) * image_tensor2
-            return image_tensor
+        # 将形状从 [T, C, H, W] 转换为 [C, T, H, W]
+        frames = frames.permute(1, 0, 2, 3)
+        return frames
 
     def _wav2fbank(self, filename, filename2=None, mix_lambda=-1):
         # no mixup
@@ -224,11 +256,10 @@ class AudiosetDataset(Dataset):
         #print(out_path)
         return out_path
 
-    def __getitem__(self, index):
+    def __getitem__(self, index): # video shape:(B, C, T, H, W), audio shape:(B, T, F)
         datum = self.data[index]
         datum = self.decode_data(datum)
-        print(datum)
-        if random.random() < self.mixup:
+        if random.random() < self.mixup: # TODO：mixup fix
             mix_sample_idx = random.randint(0, self.num_samples-1)
             mix_datum = self.data[mix_sample_idx]
             mix_datum = self.decode_data(mix_datum)
@@ -260,9 +291,9 @@ class AudiosetDataset(Dataset):
                 fbank = torch.zeros([self.target_length, 128]) + 0.01
                 print('there is an error in loading audio')
             try:
-                image = self.get_image(self.randselect_img(datum['video_id'], datum['video_path']), None, 0)
+                image = self.get_video(datum['video_path'], None, 0)
             except:
-                image = torch.zeros([3, self.im_res, self.im_res]) + 0.01
+                image = torch.zeros([3, 16, self.im_res, self.im_res]) + 0.01
                 print('there is an error in loading image')
             for label_str in datum['labels'].split(','):
                 label_indices[int(self.index_dict[label_str])] = 1.0 - self.label_smooth
