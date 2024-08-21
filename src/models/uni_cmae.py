@@ -119,7 +119,7 @@ class Block(nn.Module):
         return x
 
 # our main proposed model, for pretraining only, for finetuning, use CAVMAEFT class
-class CAVMAE(nn.Module):
+class Uni_CMAE(nn.Module):
     """ CAV-MAE Model
     """
     def __init__(self, img_size=224, audio_length=1024, patch_size=16, in_chans=3,
@@ -127,7 +127,7 @@ class CAVMAE(nn.Module):
                  decoder_embed_dim=512, decoder_depth=8, decoder_num_heads=16,
                  mlp_ratio=4., norm_layer=nn.LayerNorm, norm_pix_loss=False, tr_pos=False,pred_t_dim=8):
         super().__init__()
-        print('A CAV-MAE Model')
+        print('A Uni-CMAE Model')
         print('Use norm_pix_loss: ', norm_pix_loss)
         print('Learnable Positional Embedding: ', tr_pos)
 
@@ -192,13 +192,13 @@ class CAVMAE(nn.Module):
         pos_embed_a = get_2d_sincos_pos_embed(self.pos_embed_a.shape[-1], 8, int(self.patch_embed_a.num_patches/8), cls_token=False)
         self.pos_embed_a.data.copy_(torch.from_numpy(pos_embed_a).float().unsqueeze(0))
 
-        pos_embed_v = get_2d_sincos_pos_embed(self.pos_embed_v.shape[-1], int(self.patch_embed_v.num_patches /28), int(self.patch_embed_v.num_patches /56), cls_token=False)
+        pos_embed_v = get_2d_sincos_pos_embed(self.pos_embed_v.shape[-1], int(self.patch_embed_v.num_patches /20), int(self.patch_embed_v.num_patches /40), cls_token=False)
         self.pos_embed_v.data.copy_(torch.from_numpy(pos_embed_v).float().unsqueeze(0))
 
         decoder_pos_embed_a = get_2d_sincos_pos_embed(self.decoder_pos_embed_a.shape[-1], 8, int(self.patch_embed_a.num_patches/8), cls_token=False)
         self.decoder_pos_embed_a.data.copy_(torch.from_numpy(decoder_pos_embed_a).float().unsqueeze(0))
 
-        decoder_pos_embed_v = get_2d_sincos_pos_embed(self.decoder_pos_embed_v.shape[-1], int(self.patch_embed_v.num_patches /28), int(self.patch_embed_v.num_patches /56), cls_token=False)
+        decoder_pos_embed_v = get_2d_sincos_pos_embed(self.decoder_pos_embed_v.shape[-1], int(self.patch_embed_v.num_patches /20), int(self.patch_embed_v.num_patches /40), cls_token=False)
         self.decoder_pos_embed_v.data.copy_(torch.from_numpy(decoder_pos_embed_v).float().unsqueeze(0))
 
         # initialize patch_embed like nn.Linear (instead of nn.Conv2d)
@@ -403,14 +403,12 @@ class CAVMAE(nn.Module):
 
     def forward_mae_loss(self, input, pred, mask, modality):
         if modality == 'a':
-            if modality == 'a':
-                # for audio, need to adjust the shape
-                input = input.unsqueeze(1)
-                input = input.transpose(2, 3)
-                target = self.patchify(input, 1, int(input.shape[2]/self.patch_embed_a.patch_size[0]), int(input.shape[3]/self.patch_embed_a.patch_size[1]), 16)
-            elif modality == 'v':
-                target = self.patchify(input, 3, int(input.shape[2]/self.patch_embed_v.patch_size[0]), int(input.shape[3]/self.patch_embed_v.patch_size[1]), 16)
-
+            
+            # for audio, need to adjust the shape
+            input = input.unsqueeze(1)
+            input = input.transpose(2, 3)
+            target = self.patchify(input, 1, int(input.shape[2]/self.patch_embed_a.patch_size[0]), int(input.shape[3]/self.patch_embed_a.patch_size[1]), 16)
+            
             # patch-wise normalization might minorly improve the classification performance, but will make the model lose inpainting function
             if self.norm_pix_loss:
                 mean = target.mean(dim=-1, keepdim=True)
@@ -515,7 +513,7 @@ class CAVMAE(nn.Module):
         return a, v
 
 # the finetuned CAV-MAE model
-class CAVMAEFT(nn.Module):
+class Uni_CMAEFT(nn.Module):
     def __init__(self, label_dim, img_size=224, audio_length=1024, patch_size=16, in_chans=3,
                  embed_dim=768, modality_specific_depth=11, num_heads=12, mlp_ratio=4., norm_layer=nn.LayerNorm, norm_pix_loss=False, tr_pos=True):
         super().__init__()

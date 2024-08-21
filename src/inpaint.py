@@ -100,7 +100,7 @@ A_loss_a, A_loss_v = [], []
 if os.path.exists('./sample_reconstruct') == False:
     os.makedirs('./sample_reconstruct')
 
-mae_mdl = models.CAVMAE(encoder_depth=11)
+mae_mdl = models.Uni_CMAE(encoder_depth=11)
 
 pretrained_weights = torch.load(model_path, map_location=device)
 mae_mdl = torch.nn.DataParallel(mae_mdl)

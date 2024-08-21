@@ -4,7 +4,7 @@
 
 export TORCH_HOME=../../pretrained_models
 
-model=cav-mae
+model=uni-cmae
 masking_ratio=0.75
 mask_mode=unstructured # or time, or freq, or tf
 contrast_loss_weight=0.01
@@ -28,18 +28,18 @@ dataset_std=4.4849
 target_length=1024
 noise=True
 mixup=0.0
-batch_size=24
+batch_size=56
 lr_adapt=False
 
 dataset=audioset
-tr_data=/home/hao/Project/cav-mae/egs/voxceleb2/train_data.json
-te_data=/home/hao/Project/cav-mae/egs/voxceleb2/test_data.json
-label_csv=/home/hao/Project/cav-mae/egs/voxceleb2/class_labels_indices.csv
+tr_data=/home/hao/Project/uni-cmae/egs/voxceleb2/train_data.json
+te_data=/home/hao/Project/uni-cmae/egs/voxceleb2/test_data.json
+label_csv=/home/hao/Project/uni-cmae/egs/voxceleb2/class_labels_indices.csv
 
 exp_dir=./exp/testmae02-${dataset}-${model}-bal${bal}-lr${lr}-epoch${epoch}-bs${batch_size}-norm${norm_pix_loss}-c${contrast_loss_weight}-p${mae_loss_weight}-tp${tr_pos}-mr-${mask_mode}-${masking_ratio}
 mkdir -p $exp_dir
 
-CUDA_CACHE_DISABLE=1 CUDA_VISIBLE_DEVICES=0,2,3,4,5,6 python -W ignore ../../src/run_cavmae_pretrain.py --model ${model} --dataset ${dataset} \
+CUDA_CACHE_DISABLE=1 CUDA_VISIBLE_DEVICES=0,1,2,3,4,5 python -W ignore ../../src/run_unicmae_pretrain.py --model ${model} --dataset ${dataset} \
 --data-train ${tr_data} --data-val ${te_data} --exp-dir $exp_dir \
 --label-csv ${label_csv} --n_class 527 \
 --lr $lr --n-epochs ${epoch} --batch-size $batch_size --save_model True \

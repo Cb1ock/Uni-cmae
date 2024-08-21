@@ -42,7 +42,7 @@ additional_weight['norm_v.weight'] = mae_full_weigth['norm.weight'].detach().clo
 additional_weight['norm_a.bias'] = mae_full_weigth['norm.bias'].detach().clone()
 additional_weight['norm_v.bias'] = mae_full_weigth['norm.bias'].detach().clone()
 
-mae_mdl = models.CAVMAE(encoder_depth=encoder_depth)
+mae_mdl = models.Uni_CMAE(encoder_depth=encoder_depth)
 
 miss, unexpect = mae_mdl.load_state_dict(mae_full_weigth, strict=False)
 miss_a, unexpect_a = mae_mdl.load_state_dict(additional_weight, strict=False)
@@ -80,6 +80,6 @@ torch.save(mae_mdl.state_dict(), 'ori_mae_{:d}_for_pretrain.pth'.format(encoder_
 
 new_weigth = 'ori_mae_12_for_pretrain.pth'
 new = torch.load(new_weigth)
-mae_mdl = models.CAVMAE(encoder_depth=encoder_depth)
+mae_mdl = models.Uni_CMAE(encoder_depth=encoder_depth)
 miss, unexpect = mae_mdl.load_state_dict(new, strict=False)
 print(miss, unexpect)

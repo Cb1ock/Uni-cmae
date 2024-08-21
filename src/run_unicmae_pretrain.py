@@ -78,6 +78,34 @@ val_audio_conf = {'num_mel_bins': 128, 'target_length': args.target_length, 'fre
 
 print('current mae loss {:.3f}, and contrastive loss {:.3f}'.format(args.mae_loss_weight, args.contrast_loss_weight))
 
+def collate_fn(batch):
+    max_fbank_length = max([sample[0].shape[0] for sample in batch])
+    max_image_shape = [max([sample[1].shape[i] for sample in batch]) for i in range(4)]
+    
+    # 填充或裁剪数据
+    collated_fbank = []
+    collated_image = []
+    labels = []
+
+    for fbank, image, label in batch:
+        # 填充 fbank 数据
+        padded_fbank = torch.nn.functional.pad(fbank, (0, 0, 0, max_fbank_length - fbank.shape[0]))
+        collated_fbank.append(padded_fbank)
+
+        # 填充 image 数据
+        padded_image = torch.nn.functional.pad(image, (0, max_image_shape[3] - image.shape[3], 0, max_image_shape[2] - image.shape[2], 0, max_image_shape[1] - image.shape[1], 0, max_image_shape[0] - image.shape[0]))
+        collated_image.append(padded_image)
+
+        # 收集标签
+        labels.append(label)
+
+    # 将列表转换为张量
+    collated_fbank = torch.stack(collated_fbank)
+    collated_image = torch.stack(collated_image)
+    labels = torch.tensor(labels)
+
+    return collated_fbank, collated_image, labels
+
 if args.bal == 'bal':
     print('balanced sampler is being used')
     if args.weight_file == None:
@@ -88,25 +116,25 @@ if args.bal == 'bal':
 
     train_loader = torch.utils.data.DataLoader(
         dataloader.AudiosetDataset(args.data_train, label_csv=args.label_csv, audio_conf=audio_conf),
-        batch_size=args.batch_size, sampler=sampler, num_workers=args.num_workers, pin_memory=True, drop_last=True)
+        batch_size=args.batch_size, sampler=sampler, num_workers=args.num_workers, pin_memory=True, drop_last=True, collate_fn=collate_fn)
 else:
     print('balanced sampler is not used')
     train_loader = torch.utils.data.DataLoader(
         dataloader.AudiosetDataset(args.data_train, label_csv=args.label_csv, audio_conf=audio_conf),
-        batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True, drop_last=True)
+        batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True, drop_last=True, collate_fn=collate_fn)
 
 val_loader = torch.utils.data.DataLoader(
     dataloader.AudiosetDataset(args.data_val, label_csv=args.label_csv, audio_conf=val_audio_conf),
-    batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True, drop_last=True)
+    batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True, drop_last=True, collate_fn=collate_fn)
 
 if args.data_eval != None:
     eval_loader = torch.utils.data.DataLoader(
         dataloader.AudiosetDataset(args.data_eval, label_csv=args.label_csv, audio_conf=val_audio_conf),
-        batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True, drop_last=True)
+        batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True, drop_last=True, collate_fn=collate_fn)
 
-if args.model == 'cav-mae':
+if args.model == 'uni-cmae':
     print('pretrain a uni model with 12 layers')
-    audio_model = models.CAVMAE(img_size=im_res, audio_length=args.target_length, norm_pix_loss=args.norm_pix_loss, encoder_depth=12, tr_pos=args.tr_pos)
+    audio_model = models.Uni_CMAE(img_size=im_res, audio_length=args.target_length, norm_pix_loss=args.norm_pix_loss, encoder_depth=12, tr_pos=args.tr_pos)
 else:
     raise ValueError('model not supported')
 

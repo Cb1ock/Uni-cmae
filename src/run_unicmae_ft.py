@@ -116,7 +116,7 @@ if args.data_eval != None:
 
 if args.model == 'cav-mae-ft':
     print('finetune a cav-mae model with 11 modality-specific layers and 1 modality-sharing layers')
-    audio_model = models.CAVMAEFT(label_dim=args.n_class, modality_specific_depth=11)
+    audio_model = models.Uni_CMAEFT(label_dim=args.n_class, modality_specific_depth=11)
 else:
     raise ValueError('model not supported')
 
