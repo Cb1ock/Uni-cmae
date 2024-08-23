@@ -71,11 +71,36 @@ parser.add_argument("--mask_mode", type=str, default='unstructured', help="maski
 args = parser.parse_args()
 
 im_res = 160
-audio_conf = {'num_mel_bins': 128, 'target_length': args.target_length, 'freqm': 0, 'timem': 0, 'mixup': args.mixup, 'dataset': args.dataset, 'mode':'train', 'mean':args.dataset_mean, 'std':args.dataset_std,
+audio_conf = {'num_mel_bins': 128, 'target_length': args.target_length, 'freqm': 0, 'timem': 0, 'mixup': args.mixup, 'dataset': args.dataset, 'mode':'pretrain', 'mean':args.dataset_mean, 'std':args.dataset_std,
               'noise':args.noise, 'label_smooth': 0, 'im_res': im_res}
 val_audio_conf = {'num_mel_bins': 128, 'target_length': args.target_length, 'freqm': 0, 'timem': 0, 'mixup': 0, 'dataset': args.dataset,
-                  'mode':'eval', 'mean': args.dataset_mean, 'std': args.dataset_std, 'noise': False, 'im_res': im_res}
-
+                  'mode':'val', 'mean': args.dataset_mean, 'std': args.dataset_std, 'noise': False, 'im_res': im_res}
+video_conf = {
+    'aa_type': "rand-m7-n4-mstd0.5-inc1",
+    'pretrain_rand_flip': True,
+    'pretrain_rand_erase_prob': 0.25,
+    'pretrain_rand_erase_mode': "pixel",
+    'pretrain_rand_erase_count': 1,
+    'pretrain_rand_erase_split': False,
+    'jitter_aspect_relative': [0.75, 1.3333],
+    'jitter_scales_relative': [0.5, 1.0],
+    'repeat_aug': 1,
+    'num_retries': 10,
+    'train_jitter_scales': (256, 320),
+    'train_crop_size': im_res,
+    'train_random_horizontal_flip': True,
+    'test_num_ensemble_views': 10,
+    'test_num_spatial_crops': 3,
+    'test_crop_size': im_res, # TODO：可以改，主要就是位置编码那地方和patch_embedding那地方
+    'sampling_rate': 4,
+    'num_frames': 16,
+    'target_fps': 30,
+    'mean': (0.45, 0.45, 0.45),
+    'std': (0.225, 0.225, 0.225),
+    'enable_multi_thread_decode': False,
+    'inverse_uniform_sampling': False,
+    'use_offset_sampling': True
+}
 print('current mae loss {:.3f}, and contrastive loss {:.3f}'.format(args.mae_loss_weight, args.contrast_loss_weight))
 
 def collate_fn(batch):
@@ -115,21 +140,21 @@ if args.bal == 'bal':
     sampler = WeightedRandomSampler(samples_weight, len(samples_weight), replacement=True)
 
     train_loader = torch.utils.data.DataLoader(
-        dataloader.AudiosetDataset(args.data_train, label_csv=args.label_csv, audio_conf=audio_conf),
+        dataloader.AudiosetDataset(args.data_train, label_csv=args.label_csv, audio_conf=audio_conf,video_conf=video_conf),
         batch_size=args.batch_size, sampler=sampler, num_workers=args.num_workers, pin_memory=True, drop_last=True, collate_fn=collate_fn)
 else:
     print('balanced sampler is not used')
     train_loader = torch.utils.data.DataLoader(
-        dataloader.AudiosetDataset(args.data_train, label_csv=args.label_csv, audio_conf=audio_conf),
+        dataloader.AudiosetDataset(args.data_train, label_csv=args.label_csv, audio_conf=audio_conf,video_conf=video_conf),
         batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True, drop_last=True, collate_fn=collate_fn)
 
 val_loader = torch.utils.data.DataLoader(
-    dataloader.AudiosetDataset(args.data_val, label_csv=args.label_csv, audio_conf=val_audio_conf),
+    dataloader.AudiosetDataset(args.data_val, label_csv=args.label_csv, audio_conf=val_audio_conf,video_conf=video_conf),
     batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True, drop_last=True, collate_fn=collate_fn)
 
 if args.data_eval != None:
     eval_loader = torch.utils.data.DataLoader(
-        dataloader.AudiosetDataset(args.data_eval, label_csv=args.label_csv, audio_conf=val_audio_conf),
+        dataloader.AudiosetDataset(args.data_eval, label_csv=args.label_csv, audio_conf=val_audio_conf,video_conf=video_conf),
         batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True, drop_last=True, collate_fn=collate_fn)
 
 if args.model == 'uni-cmae':

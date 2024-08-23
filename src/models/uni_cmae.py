@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*- # @Author: hao cheng  # @Date: 2024-08-22 13:04:33  # @Last Modified by:   hao cheng  # @Last Modified time: 2024-08-22 13:04:33 # -*- coding: utf-8 -*-
 # @Time    : 3/11/23 4:02 PM
 # @Author  : Yuan Gong
 # @Affiliation  : Massachusetts Institute of Technology
@@ -255,6 +255,19 @@ class Uni_CMAE(nn.Module):
         self.patch_info = (N, T, H, W, p, u, t, h, w)
         return x
     
+    def video_unpatchify(self, x):
+        """
+        x: (N, L, patch_size**2 *3)
+        imgs: (N, 3, H, W)
+        """
+        N, T, H, W, p, u, t, h, w = self.patch_info
+
+        x = x.reshape(shape=(N, t, h, w, u, p, p, 3))
+
+        x = torch.einsum("nthwupqc->nctuhpwq", x)
+        imgs = x.reshape(shape=(N, 3, T, H, W))
+        return imgs
+    
     def unpatchify(self, x, c, h, w, p=16):
         """
         x: (N, L, patch_size**2 *3)
@@ -419,10 +432,10 @@ class Uni_CMAE(nn.Module):
             loss = loss.mean(dim=-1)  # [N, L], mean loss per patch
 
             loss = (loss * mask).sum() / mask.sum()  # mean loss on removed patches
-            return loss
+
         if modality == 'v':
             """
-            imgs: [N, 3, T, H, W]
+            input: [N, 3, T, H, W]
             pred: [N, t*h*w, u*p*p*3]
             mask: [N*t, h*w], 0 is keep, 1 is remove,
             """
@@ -448,7 +461,8 @@ class Uni_CMAE(nn.Module):
             mask = mask.view(loss.shape)
 
             loss = (loss * mask).sum() / mask.sum()  # mean loss on removed patches
-            return loss
+
+        return loss
 
     def forward(self, audio, imgs, mask_ratio_a=0.75, mask_ratio_v=0.75, mae_loss_weight=1., contrast_loss_weight=0.01, mask_mode='unstructured'):
         # latent is used for reconstruction (mae), latent_c_{a,v} are used for contrastive learning
@@ -473,6 +487,19 @@ class Uni_CMAE(nn.Module):
         loss = loss_mae + loss_c
 
         return loss, loss_mae, loss_mae_a, loss_mae_v, loss_c, mask_a, mask_v, c_acc
+    
+    def forward_vis(self, audio, imgs, mask_ratio_a=0.75, mask_ratio_v=0.75, mask_mode='unstructured'):
+        latent, mask_a, ids_restore_a, mask_v, ids_restore_v, latent_c_a, latent_c_v = self.forward_encoder(audio, imgs, mask_ratio_a, mask_ratio_v, mask_mode=mask_mode)
+        pred_a, pred_v = self.forward_decoder(latent, mask_a, ids_restore_a, mask_v, ids_restore_v)
+        loss_pixel_v = self.forward_mae_loss(imgs, pred_v, mask_v, 'v')
+        print(f'pred_a shape: {pred_a.shape}, pred_v shape: {pred_v.shape}')
+
+        audio = audio.unsqueeze(1)
+        audio = audio.transpose(2, 3)
+        pred_video = self.video_unpatchify(pred_v)
+        pred_audio = self.unpatchify(pred_a, 1, int(audio.shape[2]/self.patch_embed_a.patch_size[0]), int(audio.shape[3]/self.patch_embed_a.patch_size[1]), 16)
+
+        return pred_video, pred_audio, mask_v, mask_a, imgs, audio
 
     # used only for inpainting, ignore if inpainting is not of interest
     def forward_inpaint(self, audio, imgs, mask_ratio_a=0.75, mask_ratio_v=0.75, mask_mode='unstructured'):
