@@ -287,8 +287,7 @@ class Uni_CMAE(nn.Module):
         x: [N, L, D], sequence
         """
         N, L, D = x.shape  # batch, length, dim
-        len_keep = int(L * (1 - mask_ratio))
-
+        len_keep = int(L * (1 - mask_ratio) + 0.5)
         noise = torch.rand(N, L, device=x.device)  # noise in [0, 1]
 
         # sort noise for each sample
@@ -464,7 +463,7 @@ class Uni_CMAE(nn.Module):
 
         return loss
 
-    def forward(self, audio, imgs, mask_ratio_a=0.75, mask_ratio_v=0.75, mae_loss_weight=1., contrast_loss_weight=0.01, mask_mode='unstructured'):
+    def forward(self, audio, imgs, mask_ratio_a=0.5, mask_ratio_v=0.9, mae_loss_weight=1., contrast_loss_weight=0.01, mask_mode='unstructured'):
         # latent is used for reconstruction (mae), latent_c_{a,v} are used for contrastive learning
         latent, mask_a, ids_restore_a, mask_v, ids_restore_v, latent_c_a, latent_c_v = self.forward_encoder(audio, imgs, mask_ratio_a, mask_ratio_v, mask_mode=mask_mode)
         # if mae loss is used

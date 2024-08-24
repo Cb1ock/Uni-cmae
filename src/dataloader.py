@@ -371,7 +371,7 @@ class AudiosetDataset(Dataset):
                     frames_list.append(new_frames)
 
             frames = torch.stack(frames_list, dim=0)
-
+            frames = frames.squeeze(0)
             if self.mode in ["test"]:
                 return frames
             else:

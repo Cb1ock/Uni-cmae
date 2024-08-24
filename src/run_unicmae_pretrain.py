@@ -65,7 +65,8 @@ parser.add_argument("--pretrain_path", type=str, default='None', help="pretraine
 parser.add_argument("--contrast_loss_weight", type=float, default=0.01, help="weight for contrastive loss")
 parser.add_argument("--mae_loss_weight", type=float, default=3.0, help="weight for mae loss")
 parser.add_argument('--tr_pos', help='if use trainable positional embedding', type=ast.literal_eval, default=None)
-parser.add_argument("--masking_ratio", type=float, default=0.75, help="masking ratio")
+parser.add_argument("--masking_ratio_a", type=float, default=0.5, help="audio masking ratio")
+parser.add_argument("--masking_ratio_v", type=float, default=0.9, help="video masking ratio")
 parser.add_argument("--mask_mode", type=str, default='unstructured', help="masking ratio", choices=['unstructured', 'time', 'freq', 'tf'])
 
 args = parser.parse_args()
