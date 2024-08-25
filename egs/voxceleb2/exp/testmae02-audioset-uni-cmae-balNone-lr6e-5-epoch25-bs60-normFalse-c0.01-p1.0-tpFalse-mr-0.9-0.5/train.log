@@ -2323,3 +2323,4 @@ Epoch: [3][9500/18200]	Per Sample Total Time 0.01265	Per Sample Data Time 0.0023
 [E video_reader.cpp:517] Miss video stream
 Epoch 3/25 - Step 9600/18200 - Time: 2024-08-25 10:24:49
 Epoch: [3][9600/18200]	Per Sample Total Time 0.01266	Per Sample Data Time 0.00230	Per Sample DNN Time 0.01036	Train Total Loss 0.8418	Train MAE Loss Audio 0.3291	Train MAE Loss Visual 0.4826	Train Contrastive Loss 0.0301	Train Contrastive Acc 0.833	
+[E video_reader.cpp:517] Miss video stream
