@@ -487,7 +487,7 @@ class Uni_CMAE(nn.Module):
 
         return loss, loss_mae, loss_mae_a, loss_mae_v, loss_c, mask_a, mask_v, c_acc
     
-    def forward_vis(self, audio, imgs, mask_ratio_a=0.75, mask_ratio_v=0.75, mask_mode='unstructured'):
+    def forward_vis(self, audio, imgs, mask_ratio_a=0.5, mask_ratio_v=0.9, mask_mode='unstructured'):
         latent, mask_a, ids_restore_a, mask_v, ids_restore_v, latent_c_a, latent_c_v = self.forward_encoder(audio, imgs, mask_ratio_a, mask_ratio_v, mask_mode=mask_mode)
         pred_a, pred_v = self.forward_decoder(latent, mask_a, ids_restore_a, mask_v, ids_restore_v)
         loss_pixel_v = self.forward_mae_loss(imgs, pred_v, mask_v, 'v')
