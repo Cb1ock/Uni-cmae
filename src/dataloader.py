@@ -545,11 +545,11 @@ class AudiosetDataset(Dataset):
             except:
                 fbank = torch.zeros([self.target_length, 128]) + 0.01
                 print('there is an error in loading audio')
-            try:
-                image = self.get_video(datum['video_path'], None, 0)
-            except:
-                image = torch.zeros([3, 16, self.im_res, self.im_res]) + 0.01
-                print('there is an error in loading image')
+            #try:
+            image = self.get_video(datum['video_path'], datum['id'], 0)
+            # except:
+            #     image = torch.zeros([3, 16, self.im_res, self.im_res]) + 0.01
+            #     print('there is an error in loading image')
             for label_str in datum['labels'].split(','):
                 label_indices[int(self.index_dict[label_str])] = 1.0 - self.label_smooth
             label_indices = torch.FloatTensor(label_indices)
