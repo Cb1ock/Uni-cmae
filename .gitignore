@@ -30,3 +30,5 @@ egs/vggsound/run_cavmae_ft_audioonly_internal.sh
 *.pyc
 **__pycache__**
 *.pkl
+*.log
+*.csv

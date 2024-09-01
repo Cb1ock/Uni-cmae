@@ -204,3 +204,49 @@ def decode(
     if v_frames is None or v_frames.size(0) == 0:
         return None, fps, decode_all_video
     return v_frames, fps, decode_all_video
+
+import os
+from PIL import Image
+import torch
+import numpy as np
+
+def load_frames_from_folder(folder_path):
+    """
+    读取文件夹中的所有帧，并将其转换为一个四维张量，维度为 [t, h, w, c]。
+
+    Args:
+        folder_path (str): 帧所在的文件夹路径。
+
+    Returns:
+        frames_tensor (torch.Tensor): 维度为 [t, h, w, c] 的张量。
+    """
+    # 获取文件夹中的所有文件，并排序
+    frame_files = sorted(os.listdir(folder_path))
+    
+    # 初始化一个列表来存储所有帧
+    frames = []
+    max_width, max_height = 0, 0
+
+    # 首先遍历一遍文件，找到最大的宽度和高度
+    for frame_file in frame_files:
+        frame_path = os.path.join(folder_path, frame_file)
+        frame = Image.open(frame_path)
+        max_width = max(max_width, frame.width)
+        max_height = max(max_height, frame.height)
+
+    for frame_file in frame_files:
+        frame_path = os.path.join(folder_path, frame_file)
+        frame = Image.open(frame_path)
+        
+        # 创建一个新的图像，填充为最大尺寸
+        new_frame = Image.new("RGB", (max_width, max_height))
+        new_frame.paste(frame, (0, 0))
+        
+        # 将图像转换为张量，并添加到列表中
+        frame_tensor = torch.tensor(np.array(new_frame))
+        frames.append(frame_tensor)
+    
+    # 将所有帧堆叠成一个四维张量，维度为 [t, h, w, c]
+    frames_tensor = torch.stack(frames)
+    
+    return frames_tensor

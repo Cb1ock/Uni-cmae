@@ -24,7 +24,7 @@ def train(audio_model, train_loader, test_loader, args):
 
     batch_time, per_sample_time, data_time, per_sample_data_time, loss_meter, per_sample_dnn_time = AverageMeter(), AverageMeter(), AverageMeter(), AverageMeter(), AverageMeter(), AverageMeter()
     progress = []
-    best_epoch, best_mAP, best_acc = 0, -np.inf, -np.inf
+    best_epoch, best_mAP, best_acc, best_uar, best_war = 0, -np.inf, -np.inf, -np.inf, -np.inf
     global_step, epoch = 0, 0
     start_time = time.time()
     exp_dir = args.exp_dir
@@ -91,7 +91,7 @@ def train(audio_model, train_loader, test_loader, args):
 
     print("current #steps=%s, #epochs=%s" % (global_step, epoch))
     print("start training...")
-    result = np.zeros([args.n_epochs, 4])
+    result = np.zeros([args.n_epochs, 7])
     audio_model.train()
     while epoch < args.n_epochs + 1:
         begin_time = time.time()
@@ -150,24 +150,40 @@ def train(audio_model, train_loader, test_loader, args):
 
         mAP = np.mean([stat['AP'] for stat in stats])
         mAUC = np.mean([stat['auc'] for stat in stats])
+        uar = stats[0]['uar']
+        war = stats[0]['war']
+        waf = stats[0]['waf']
         acc = stats[0]['acc'] # this is just a trick, acc of each class entry is the same, which is the accuracy of all classes, not class-wise accuracy
 
-        if main_metrics == 'mAP':
-            print("mAP: {:.6f}".format(mAP))
-        else:
-            print("acc: {:.6f}".format(acc))
+        
+        print("mAP: {:.6f}".format(mAP))
+        print("war: {:.6f}".format(war))
+        print("uar: {:.6f}".format(uar))
+        print("acc: {:.6f}".format(acc))
+        print("waf: {:.6f}".format(waf))
+
         print("AUC: {:.6f}".format(mAUC))
         print("d_prime: {:.6f}".format(d_prime(mAUC)))
         print("train_loss: {:.6f}".format(loss_meter.avg))
         print("valid_loss: {:.6f}".format(valid_loss))
 
-        result[epoch-1, :] = [acc, mAP, mAUC, optimizer.param_groups[0]['lr']]
+        result[epoch-1, :] = [acc, uar, war, waf, mAP, mAUC, optimizer.param_groups[0]['lr']]
         np.savetxt(exp_dir + '/result.csv', result, delimiter=',')
         print('validation finished')
 
         if mAP > best_mAP:
             best_mAP = mAP
             if main_metrics == 'mAP':
+                best_epoch = epoch
+
+        if uar > best_uar:
+            best_uar = uar
+            if main_metrics == 'uar':
+                best_epoch = epoch
+
+        if war > best_war:
+            best_war = war
+            if main_metrics == 'war':
                 best_epoch = epoch
 
         if acc > best_acc:
@@ -186,6 +202,10 @@ def train(audio_model, train_loader, test_loader, args):
                 scheduler.step(mAP)
             elif main_metrics == 'acc':
                 scheduler.step(acc)
+            elif main_metrics == 'uar':
+                scheduler.step(uar)
+            elif main_metrics == 'war':
+                scheduler.step(war)
         else:
             scheduler.step()
 

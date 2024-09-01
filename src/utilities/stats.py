@@ -9,7 +9,7 @@ def d_prime(auc):
     return d_prime
 
 def calculate_stats(output, target):
-    """Calculate statistics including mAP, AUC, etc.
+    """Calculate statistics including mAP, AUC, WAR, UAR, F1, etc.
 
     Args:
       output: 2d array, (samples_num, classes_num)
@@ -24,7 +24,10 @@ def calculate_stats(output, target):
 
     # Accuracy, only used for single-label classification such as esc-50, not for multiple label one such as AudioSet
     acc = metrics.accuracy_score(np.argmax(target, 1), np.argmax(output, 1))
-
+    # Calculate WAR and UAR
+    war = metrics.recall_score(np.argmax(target, 1), np.argmax(output, 1), average='weighted')
+    uar = metrics.recall_score(np.argmax(target, 1), np.argmax(output, 1), average='macro')
+    waf = metrics.f1_score(np.argmax(target, 1), np.argmax(output, 1), average='weighted')
     # Class-wise statistics
     for k in range(classes_num):
 
@@ -43,6 +46,9 @@ def calculate_stats(output, target):
             # FPR, TPR
             (fpr, tpr, thresholds) = metrics.roc_curve(target[:, k], output[:, k])
 
+            # F1 Score
+            f1 = metrics.f1_score(target[:, k], output[:, k] > 0.5)
+
             save_every_steps = 1000     # Sample statistics to reduce size
             dict = {'precisions': precisions[0::save_every_steps],
                     'recalls': recalls[0::save_every_steps],
@@ -50,8 +56,12 @@ def calculate_stats(output, target):
                     'fpr': fpr[0::save_every_steps],
                     'fnr': 1. - tpr[0::save_every_steps],
                     'auc': auc,
+                    'f1': f1,
                     # note acc is not class-wise, this is just to keep consistent with other metrics
-                    'acc': acc
+                    'acc': acc,
+                    'uar': uar,
+                    'war': war,
+                    'waf': waf
                     }
         except:
             dict = {'precisions': -1,
@@ -60,8 +70,12 @@ def calculate_stats(output, target):
                     'fpr': -1,
                     'fnr': -1,
                     'auc': -1,
+                    'f1': -1,
                     # note acc is not class-wise, this is just to keep consistent with other metrics
-                    'acc': acc
+                    'acc': acc,
+                    'uar': uar,
+                    'war': war,
+                    'waf': waf
                     }
             print('class {:s} no true sample'.format(str(k)))
         stats.append(dict)

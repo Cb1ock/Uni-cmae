@@ -70,7 +70,7 @@ def extract_audio_feat(model, data, audio_conf, label_csv, num_class, save_path,
         audio_model = models.Uni_CMAE(encoder_depth=11)
     # cav-mae only been ssl pretrained + supervisedly finetuned
     elif model_type == 'finetune':
-        audio_model = models.Uni_CMAEFT(label_dim=num_class, modality_specific_depth=11)
+        audio_model = models.Uni_CMAEFT(label_dim=num_class, encoder_depth=11)
     sdA = torch.load(model, map_location=device)
     if isinstance(audio_model, torch.nn.DataParallel) == False:
         audio_model = torch.nn.DataParallel(audio_model)

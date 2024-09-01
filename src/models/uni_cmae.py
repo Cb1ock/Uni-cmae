@@ -541,16 +541,18 @@ class Uni_CMAE(nn.Module):
 # the finetuned CAV-MAE model
 class Uni_CMAEFT(nn.Module):
     def __init__(self, label_dim, img_size=224, audio_length=1024, patch_size=16, in_chans=3,
-                 embed_dim=768, modality_specific_depth=11, num_heads=12, mlp_ratio=4., norm_layer=nn.LayerNorm, norm_pix_loss=False, tr_pos=True):
+                 embed_dim=768, encoder_depth=12, num_heads=12, mlp_ratio=4., norm_layer=nn.LayerNorm, tr_pos=True,
+                 pred_t_dim=8, t_patch_size=2, num_frames=16):
         super().__init__()
         timm.models.vision_transformer.Block = Block
-        print('Use norm_pix_loss: ', norm_pix_loss)
 
-        timm.models.vision_transformer.PatchEmbed = Tokenizer_audio
-        timm.models.vision_transformer.Block = Block
+
+        self.pred_t_dim = pred_t_dim
+        self.t_pred_patch_size = t_patch_size * pred_t_dim // num_frames
+
 
         self.patch_embed_a = Tokenizer_audio(img_size, patch_size, 1, embed_dim)
-        self.patch_embed_v = Tokenizer_audio(img_size, patch_size, in_chans, embed_dim)
+        self.patch_embed_v = Tokenizer_video(img_size, patch_size, in_chans, embed_dim, num_frames, t_patch_size)
 
         self.patch_embed_a.num_patches = int(audio_length * 128 / 256)
         print('Number of Audio Patches: {:d}, Visual Patches: {:d}'.format(self.patch_embed_a.num_patches, self.patch_embed_v.num_patches))
@@ -561,10 +563,8 @@ class Uni_CMAEFT(nn.Module):
         self.pos_embed_a = nn.Parameter(torch.zeros(1, self.patch_embed_a.num_patches, embed_dim), requires_grad=tr_pos)  # fixed sin-cos embedding
         self.pos_embed_v = nn.Parameter(torch.zeros(1, self.patch_embed_v.num_patches, embed_dim), requires_grad=tr_pos)  # fixed sin-cos embedding
 
-        self.blocks_a = nn.ModuleList([Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, qk_scale=None, norm_layer=norm_layer) for i in range(modality_specific_depth)])
-        self.blocks_v = nn.ModuleList([Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, qk_scale=None, norm_layer=norm_layer) for i in range(modality_specific_depth)])
-        self.blocks_u = nn.ModuleList([Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, qk_scale=None, norm_layer=norm_layer) for i in range(12 - modality_specific_depth)])
-
+        self.blocks = nn.ModuleList([Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, qk_scale=None, norm_layer=norm_layer) for i in range(encoder_depth)])
+        
         self.norm_a = norm_layer(embed_dim)
         self.norm_v = norm_layer(embed_dim)
         self.norm = norm_layer(embed_dim)
@@ -587,7 +587,7 @@ class Uni_CMAEFT(nn.Module):
         pos_embed_a = get_2d_sincos_pos_embed(self.pos_embed_a.shape[-1], 8, int(self.patch_embed_a.num_patches/8), cls_token=False)
         self.pos_embed_a.data.copy_(torch.from_numpy(pos_embed_a).float().unsqueeze(0))
 
-        pos_embed_v = get_2d_sincos_pos_embed(self.pos_embed_v.shape[-1], int(self.patch_embed_v.num_patches ** .5), int(self.patch_embed_v.num_patches ** .5), cls_token=False)
+        pos_embed_v = get_2d_sincos_pos_embed(self.pos_embed_v.shape[-1], int(self.patch_embed_v.num_patches /20), int(self.patch_embed_v.num_patches /40), cls_token=False)
         self.pos_embed_v.data.copy_(torch.from_numpy(pos_embed_v).float().unsqueeze(0))
 
         w = self.patch_embed_a.proj.weight.data
@@ -620,19 +620,17 @@ class Uni_CMAEFT(nn.Module):
             a = a + self.modality_a
 
             v = self.patch_embed_v(v)
+            B, T, L, D = v.shape
+            v = v.view(B, T*L, D)
             v = v + self.pos_embed_v
             v = v + self.modality_v
 
-            for blk in self.blocks_a:
-                a = blk(a)
-
-            for blk in self.blocks_v:
-                v = blk(v)
+            for blk in self.blocks:
+                a = blk(a, 'a')
+                v = blk(v, 'v')
 
             x = torch.cat((a, v), dim=1)
 
-            for blk in self.blocks_u:
-                x = blk(x)
             x = self.norm(x)
 
             x = x.mean(dim=1)

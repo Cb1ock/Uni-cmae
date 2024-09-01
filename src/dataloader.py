@@ -93,6 +93,8 @@ class AudiosetDataset(Dataset):
         print('now using mix-up with rate {:f}'.format(self.mixup))
         self.dataset = self.audio_conf.get('dataset')
         print('now process ' + self.dataset)
+        self.dataset_type = self.video_conf.get('dataset_type', 'video')
+        print(f'using {self.dataset_type} data as video input')
         # dataset spectrogram mean and std, used to normalize the input
         self.norm_mean = self.audio_conf.get('mean')
         self.norm_std = self.audio_conf.get('std')
@@ -261,24 +263,29 @@ class AudiosetDataset(Dataset):
         # decoded, repeatly find a random video replacement that can be decoded.
         for i_try in range(self._num_retries):
 
-            # 读取视频为2进制文件，如果不是test模式，并且读取失败的话，随机选择另一个视频 # TODO：随机选择另一个视频
-            with open(filename, "rb") as fp:
-                video_container = fp.read()
+            if self.dataset_type == 'video':
+                # 读取视频为2进制文件，如果不是test模式，并且读取失败的话，随机选择另一个视频 # TODO：随机选择另一个视频
+                with open(filename, "rb") as fp:
+                    video_container = fp.read()
 
-            video_meta = {}
-            # Decode video. Meta info is used to perform selective decoding.
-            frames, fps, decode_all_video = decoder.decode(
-                video_container,
-                sampling_rate,
-                self._num_frames,
-                temporal_sample_index,
-                self._test_num_ensemble_views,
-                video_meta=video_meta,
-                target_fps=self._target_fps,
-                max_spatial_scale=min_scale,
-                use_offset=self._use_offset_sampling,
-                rigid_decode_all_video=self.mode in ["pretrain"],
-            )
+                video_meta = {}
+                # Decode video. Meta info is used to perform selective decoding.
+                frames, fps, decode_all_video = decoder.decode(
+                    video_container,
+                    sampling_rate,
+                    self._num_frames,
+                    temporal_sample_index,
+                    self._test_num_ensemble_views,
+                    video_meta=video_meta,
+                    target_fps=self._target_fps,
+                    max_spatial_scale=min_scale,
+                    use_offset=self._use_offset_sampling,
+                    rigid_decode_all_video=self.mode in ["pretrain"],
+                )
+            elif self.dataset_type == 'frame':
+                frames = decoder.load_frames_from_folder(filename + '/' + filename2)
+                fps = 24
+                decode_all_video = True
 
             # If decoding failed (wrong format, video is too short, and etc),
             # select another video.
@@ -519,7 +526,7 @@ class AudiosetDataset(Dataset):
                 fbank = torch.zeros([self.target_length, 128]) + 0.01
                 print('there is an error in loading audio')
             try:
-                image = self.get_video(self.randselect_img(datum['video_id'], datum['video_path']), self.randselect_img(mix_datum['video_id'], datum['video_path']), mix_lambda)
+                image = self.get_video(self.randselect_img(datum['id'], datum['video_path']), self.randselect_img(mix_datum['id'], datum['video_path']), mix_lambda)
             except:
                 image = torch.zeros([3, self.im_res, self.im_res]) + 0.01
                 print('there is an error in loading image')

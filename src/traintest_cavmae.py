@@ -1,9 +1,9 @@
-# -*- coding: utf-8 -*-
-# @Time    : 6/10/21 11:00 PM
-# @Author  : Yuan Gong
-# @Affiliation  : Massachusetts Institute of Technology
-# @Email   : yuangong@mit.edu
-# @File    : traintest.py
+# -*- coding: utf-8 -*- 
+# # @Author: hao cheng  
+# # @Date: 2024-08-25 11:03:59  
+# # @Last Modified by:   hao cheng  
+# # @Last Modified time: 2024-08-25 11:03:59 
+
 
 # not rely on supervised feature
 
@@ -112,8 +112,6 @@ def train(audio_model, train_loader, test_loader, args):
             print_step = print_step or early_print_step
 
             if print_step and global_step != 0:
-                current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                print(f"Epoch {epoch}/{args.n_epochs} - Step {i}/{len(train_loader)} - Time: {current_time}")
                 print('Epoch: [{0}][{1}/{2}]\t'
                   'Per Sample Total Time {per_sample_time.avg:.5f}\t'
                   'Per Sample Data Time {per_sample_data_time.avg:.5f}\t'
