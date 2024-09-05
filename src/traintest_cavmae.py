@@ -18,7 +18,7 @@ from torch import nn
 import numpy as np
 import pickle
 from torch.cuda.amp import autocast,GradScaler
-
+from torch.optim.lr_scheduler import LambdaLR, CosineAnnealingLR
 
 def train(audio_model, train_loader, test_loader, args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -47,15 +47,26 @@ def train(audio_model, train_loader, test_loader, args):
     trainables = [p for p in audio_model.parameters() if p.requires_grad]
     print('Total parameter number is : {:.3f} million'.format(sum(p.numel() for p in audio_model.parameters()) / 1e6))
     print('Total trainable parameter number is : {:.3f} million'.format(sum(p.numel() for p in trainables) / 1e6))
-    optimizer = torch.optim.Adam(trainables, args.lr, weight_decay=5e-7, betas=(0.95, 0.999))
+    optimizer = torch.optim.Adam(trainables, args.lr, weight_decay=0, betas=(0.9, 0.95))
+
+    # Define the warmup learning rate scheduler
+    def warmup_lr_lambda(epoch):
+        if epoch < args.warmup_epochs:
+            return float(epoch) / float(max(1, args.warmup_epochs))
+        return 1.0
+
+    warmup_scheduler = LambdaLR(optimizer, lr_lambda=warmup_lr_lambda)
 
     # use adapt learning rate scheduler, for preliminary experiments only, should not use for formal experiments
-    if args.lr_adapt == True:
+    if args.lr_scheduler == 'plateau':
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=args.lr_patience, verbose=True)
         print('Override to use adaptive learning rate scheduler.')
-    else:
+    elif args.lr_scheduler == 'step':
         scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, list(range(args.lrscheduler_start, 1000, args.lrscheduler_step)),gamma=args.lrscheduler_decay)
         print('The learning rate scheduler starts at {:d} epoch with decay rate of {:.3f} every {:d} epoches'.format(args.lrscheduler_start, args.lrscheduler_decay, args.lrscheduler_step))
+    elif args.lrscheduler == 'cosine':
+        scheduler = CosineAnnealingLR(optimizer, T_max=args.n_epochs , eta_min=0)
+        print('Using cosine annealing learning rate scheduler.')
 
     print('now training with {:s}, learning rate scheduler: {:s}'.format(str(args.dataset), str(scheduler)))
 
@@ -88,7 +99,7 @@ def train(audio_model, train_loader, test_loader, args):
             per_sample_data_time.update((time.time() - end_time) / a_input.shape[0])
             dnn_start_time = time.time()
 
-            with autocast():            # TODO：modify the mask ratio
+            with autocast():
                 loss, loss_mae, loss_mae_a, loss_mae_v, loss_c, mask_a, mask_v, c_acc = audio_model(a_input, v_input, args.masking_ratio_a, args.masking_ratio_v, mae_loss_weight=args.mae_loss_weight, contrast_loss_weight=args.contrast_loss_weight, mask_mode=args.mask_mode)
                 # this is due to for torch.nn.DataParallel, the output loss of 4 gpus won't be automatically averaged, need to be done manually
                 loss, loss_mae, loss_mae_a, loss_mae_v, loss_c, c_acc = loss.sum(), loss_mae.sum(), loss_mae_a.sum(), loss_mae_v.sum(), loss_c.sum(), c_acc.mean()
@@ -162,10 +173,13 @@ def train(audio_model, train_loader, test_loader, args):
         if args.save_model == True:
             torch.save(audio_model.state_dict(), "%s/models/audio_model.%d.pth" % (exp_dir, epoch))
 
-        if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
-            scheduler.step(-eval_loss_av)
+        if epoch < args.warmup_epochs:
+            warmup_scheduler.step()
         else:
-            scheduler.step()
+            if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                scheduler.step(-eval_loss_av)
+            else:
+                scheduler.step()
 
         print('Epoch-{0} lr: {1}'.format(epoch, optimizer.param_groups[0]['lr']))
 

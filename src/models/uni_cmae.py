@@ -13,7 +13,7 @@ import torch.nn as nn
 import timm
 from timm.models.layers import to_2tuple, trunc_normal_, DropPath
 from timm.models.vision_transformer import Attention, Mlp
-from .pos_embed import get_2d_sincos_pos_embed
+from .pos_embed import get_2d_sincos_pos_embed, divide_st_pos
 
 class Tokenizer_audio(nn.Module):
     def __init__(self, img_size=224, patch_size=16, in_chans=3, embed_dim=768):
@@ -124,8 +124,8 @@ class Uni_CMAE(nn.Module):
     """
     def __init__(self, img_size=224, audio_length=1024, patch_size=16, in_chans=3,
                  embed_dim=768, num_frames=16, t_patch_size=2, encoder_depth=12, num_heads=12,
-                 decoder_embed_dim=512, decoder_depth=8, decoder_num_heads=16,
-                 mlp_ratio=4., norm_layer=nn.LayerNorm, norm_pix_loss=False, tr_pos=False,pred_t_dim=8):
+                 decoder_embed_dim=384, decoder_depth=4, decoder_num_heads=6,
+                 mlp_ratio=4., norm_layer=nn.LayerNorm, norm_pix_loss=False, tr_pos=False,pred_t_dim=8,bidirect_contrast=False):
         super().__init__()
         print('A Uni-CMAE Model')
         print('Use norm_pix_loss: ', norm_pix_loss)
@@ -134,8 +134,9 @@ class Uni_CMAE(nn.Module):
         # the encoder part
         # overide the timm package
         
-        self.pred_t_dim = pred_t_dim
+        self.pred_t_dim = pred_t_dim # the frame number of the prediction
         self.t_pred_patch_size = t_patch_size * pred_t_dim // num_frames
+        self.bidirect_contrast = bidirect_contrast
 
         self.patch_embed_a = Tokenizer_audio(img_size, patch_size, 1, embed_dim)
         self.patch_embed_v = Tokenizer_video(img_size, patch_size, in_chans, embed_dim, num_frames, t_patch_size)
@@ -147,14 +148,12 @@ class Uni_CMAE(nn.Module):
         self.modality_v = nn.Parameter(torch.zeros(1, 1, embed_dim))
 
         self.pos_embed_a = nn.Parameter(torch.zeros(1, self.patch_embed_a.num_patches, embed_dim), requires_grad=tr_pos)  # fixed sin-cos embedding
-        self.pos_embed_v = nn.Parameter(torch.zeros(1, self.patch_embed_v.num_patches, embed_dim), requires_grad=tr_pos)  # fixed sin-cos embedding
+        self.pos_embed_v_t = nn.Parameter(torch.zeros(1, self.patch_embed_v.t_grid_size, embed_dim),requires_grad=tr_pos)  # 时间位置编码
+        self.pos_embed_v_s = nn.Parameter(torch.zeros(1, int(self.patch_embed_v.num_patches/self.patch_embed_v.t_grid_size), embed_dim),requires_grad=tr_pos)  # 空间位置编码
+        self.pos_embed_v = nn.Parameter(torch.zeros(1, self.patch_embed_v.t_grid_size, int(self.patch_embed_v.num_patches/self.patch_embed_v.t_grid_size), embed_dim), requires_grad=tr_pos)  # 时空联合位置编码
 
-        # audio-branch
+        # Main ViT Block
         self.blocks = nn.ModuleList([Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, qk_scale=None, norm_layer=norm_layer) for i in range(encoder_depth)])
-        # visual-branch
-        # self.blocks_v = nn.ModuleList([Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, qk_scale=None, norm_layer=norm_layer) for i in range(modality_specific_depth)])
-        # # unified branch
-        # self.blocks_u = nn.ModuleList([Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, qk_scale=None, norm_layer=norm_layer) for i in range(12-modality_specific_depth)])
 
         # independent normalization layer for audio, visual, and audio-visual
         self.norm_a, self.norm_v, self.norm = norm_layer(embed_dim), norm_layer(embed_dim), norm_layer(embed_dim)
@@ -170,7 +169,11 @@ class Uni_CMAE(nn.Module):
         self.decoder_modality_v = nn.Parameter(torch.zeros(1, 1, decoder_embed_dim))
 
         self.decoder_pos_embed_a = nn.Parameter(torch.zeros(1, self.patch_embed_a.num_patches, decoder_embed_dim), requires_grad=tr_pos)  # fixed sin-cos embedding
-        self.decoder_pos_embed_v = nn.Parameter(torch.zeros(1, self.patch_embed_v.num_patches, decoder_embed_dim), requires_grad=tr_pos)  # fixed sin-cos embedding
+        # add by archie
+        self.decoder_pos_embed_v_t = nn.Parameter(torch.zeros(1, self.patch_embed_v.t_grid_size, decoder_embed_dim),requires_grad=tr_pos)  # 时间位置编码
+        self.decoder_pos_embed_v_s = nn.Parameter(torch.zeros(1, int(self.patch_embed_v.num_patches / self.patch_embed_v.t_grid_size), decoder_embed_dim),requires_grad=tr_pos)  # 空间位置编码
+        self.decoder_pos_embed_v = nn.Parameter(torch.zeros(1, self.patch_embed_v.t_grid_size, int(self.patch_embed_v.num_patches / self.patch_embed_v.t_grid_size),decoder_embed_dim), requires_grad=tr_pos)  # 时空联合位置编码
+        self.decoder_pos_embed_v_trans = nn.Parameter(torch.zeros(1, self.patch_embed_v.t_grid_size*int(self.patch_embed_v.num_patches / self.patch_embed_v.t_grid_size),decoder_embed_dim), requires_grad=tr_pos)
 
         self.decoder_blocks = nn.ModuleList([Block(decoder_embed_dim, decoder_num_heads, mlp_ratio, qkv_bias=True, qk_scale=None, norm_layer=norm_layer) for i in range(decoder_depth)])
 
@@ -178,7 +181,7 @@ class Uni_CMAE(nn.Module):
 
         # project channel is different for two modality, use two projection head
         self.decoder_pred_a = nn.Linear(decoder_embed_dim, patch_size ** 2 * 1, bias=True)  # decoder to patch
-        self.decoder_pred_v = nn.Linear(decoder_embed_dim, patch_size ** 2 * in_chans, bias=True)  # decoder to patch
+        self.decoder_pred_v = nn.Linear(decoder_embed_dim, self.t_pred_patch_size*patch_size ** 2 * in_chans, bias=True)  # decoder to patch
 
         self.norm_pix_loss = norm_pix_loss
 
@@ -192,14 +195,41 @@ class Uni_CMAE(nn.Module):
         pos_embed_a = get_2d_sincos_pos_embed(self.pos_embed_a.shape[-1], 8, int(self.patch_embed_a.num_patches/8), cls_token=False)
         self.pos_embed_a.data.copy_(torch.from_numpy(pos_embed_a).float().unsqueeze(0))
 
-        pos_embed_v = get_2d_sincos_pos_embed(self.pos_embed_v.shape[-1], int(self.patch_embed_v.num_patches /20), int(self.patch_embed_v.num_patches /40), cls_token=False)
-        self.pos_embed_v.data.copy_(torch.from_numpy(pos_embed_v).float().unsqueeze(0))
+        # add by archie
+        pos_embed_v_t, pos_embed_v_s, _ = divide_st_pos(int((self.patch_embed_v.num_patches/self.patch_embed_v.t_grid_size) ** 0.5),
+                                                        int((self.patch_embed_v.num_patches/self.patch_embed_v.t_grid_size) ** 0.5),  # patch的长和宽
+                                                        self.patch_embed_v.t_grid_size,  # 时间序列长度
+                                                        self.pos_embed_v.shape[-1],  # num_hidden
+                                                        random_temporal_pos=False, # 是否加入随机偏移变量环节过拟合
+                                                        train_mode=True)  
+        self.pos_embed_v_t.data.copy_(pos_embed_v_t.float().unsqueeze(0))
+        self.pos_embed_v_s.data.copy_(pos_embed_v_s.float().unsqueeze(0))
+
+        pos_embed_v = self.pos_embed_v_s.data.unsqueeze(1) + self.pos_embed_v_t.data.unsqueeze(2)
+        self.pos_embed_v.data.copy_(pos_embed_v)
+        print('pos_embed_v_t shape:', self.pos_embed_v_t.shape)
+        print('pos_embed_v_s shape:', self.pos_embed_v_s.shape)
+        print('pos_embed_v shape:', self.pos_embed_v.shape)
 
         decoder_pos_embed_a = get_2d_sincos_pos_embed(self.decoder_pos_embed_a.shape[-1], 8, int(self.patch_embed_a.num_patches/8), cls_token=False)
         self.decoder_pos_embed_a.data.copy_(torch.from_numpy(decoder_pos_embed_a).float().unsqueeze(0))
 
-        decoder_pos_embed_v = get_2d_sincos_pos_embed(self.decoder_pos_embed_v.shape[-1], int(self.patch_embed_v.num_patches /20), int(self.patch_embed_v.num_patches /40), cls_token=False)
-        self.decoder_pos_embed_v.data.copy_(torch.from_numpy(decoder_pos_embed_v).float().unsqueeze(0))
+        # add by archie
+        decoder_pos_embed_v_t, decoder_pos_embed_v_s, _ = divide_st_pos(int((self.patch_embed_v.num_patches / self.patch_embed_v.t_grid_size) ** 0.5),
+                                                                        int((self.patch_embed_v.num_patches / self.patch_embed_v.t_grid_size) ** 0.5),  # patch的长和宽
+                                                                        self.patch_embed_v.t_grid_size,  # 时间序列长度
+                                                                        self.decoder_pos_embed_v.shape[-1],  # num_hidden
+                                                                        random_temporal_pos=False,  # 是否加入随机偏移变量缓解过拟合-继承自uni-perceiver
+                                                                        train_mode=True)
+        self.decoder_pos_embed_v_t.data.copy_(decoder_pos_embed_v_t.float().unsqueeze(0))
+        self.decoder_pos_embed_v_s.data.copy_(decoder_pos_embed_v_s.float().unsqueeze(0))
+        decoder_pos_embed_v = self.decoder_pos_embed_v_s.data.unsqueeze(1) + self.decoder_pos_embed_v_t.data.unsqueeze(2)
+        self.decoder_pos_embed_v.data.copy_(decoder_pos_embed_v)
+        self.decoder_pos_embed_v_trans.data.copy_(self.decoder_pos_embed_v.data.view(1, -1, self.decoder_pos_embed_v.shape[-1]))
+        print('decoder_pos_embed_v_t shape:', self.decoder_pos_embed_v_t.shape)
+        print('decoder_pos_embed_v_s shape:', self.decoder_pos_embed_v_s.shape)
+        print('decoder_pos_embed_v shape:', self.decoder_pos_embed_v.shape)
+        print('decoder_pos_embed_v_trans shape:', self.decoder_pos_embed_v_trans.shape)
 
         # initialize patch_embed like nn.Linear (instead of nn.Conv2d)
         w = self.patch_embed_a.proj.weight.data
@@ -315,9 +345,9 @@ class Uni_CMAE(nn.Module):
         a = a + self.modality_a
 
         v = self.patch_embed_v(v)
+        v = v + self.pos_embed_v
         B, T, L, D = v.shape
         v = v.view(B, T*L, D)
-        v = v + self.pos_embed_v
         v = v + self.modality_v
 
         # by default, we always use unstructured masking
@@ -329,8 +359,10 @@ class Uni_CMAE(nn.Module):
         # NOTE:shared MHSA and MLP, but independent normalization layers
         # choice 1
         for blk in self.blocks:
-            a = blk(a, 'a')
-            v = blk(v, 'v')
+            # a = blk(a, 'a')
+            # v = blk(v, 'v')
+            a = blk(a)
+            v = blk(v)
         # choice 2
         # for blk in self.blocks:
         #     a = blk(a)
@@ -351,7 +383,8 @@ class Uni_CMAE(nn.Module):
         # for blk in self.blocks_u:
         #     cv = blk(v, 'v')
         cv = self.norm_v(v)
-
+        #         ca = x[:, :self.patch_embed_a.num_patches, :]
+        # cv = x[:, self.patch_embed_a.num_patches:, :]
         return x, mask_a, ids_restore_a, mask_v, ids_restore_v, ca, cv
 
     def forward_decoder(self, x, mask_a, ids_restore_a, mask_v, ids_restore_v): 
@@ -372,7 +405,7 @@ class Uni_CMAE(nn.Module):
         # concatenate audio and visual tokens
         x = torch.cat([a_, v_], dim=1)
 
-        decoder_pos_embed = torch.cat([self.decoder_pos_embed_a, self.decoder_pos_embed_v], dim=1)
+        decoder_pos_embed = torch.cat([self.decoder_pos_embed_a, self.decoder_pos_embed_v_trans], dim=1)
         x = x + decoder_pos_embed
 
         # add modality indication tokens
@@ -434,7 +467,7 @@ class Uni_CMAE(nn.Module):
 
         if modality == 'v':
             """
-            input: [N, 3, T, H, W]
+            target: [N, 3, T, H, W]
             pred: [N, t*h*w, u*p*p*3]
             mask: [N*t, h*w], 0 is keep, 1 is remove,
             """
@@ -478,7 +511,7 @@ class Uni_CMAE(nn.Module):
         # if contrastive loss is used
         if contrast_loss_weight != 0:
             # note this is single directional
-            loss_c, c_acc = self.forward_contrastive(latent_c_a.mean(dim=1), latent_c_v.mean(dim=1))
+            loss_c, c_acc = self.forward_contrastive(latent_c_a.mean(dim=1), latent_c_v.mean(dim=1), bidirect_contrast=self.bidirect_contrast)
             loss_c = contrast_loss_weight * loss_c
         else:
             loss_c, c_acc = torch.tensor(0.0, device=audio.device), torch.tensor(0.0, device=audio.device)
@@ -495,10 +528,36 @@ class Uni_CMAE(nn.Module):
 
         audio = audio.unsqueeze(1)
         audio = audio.transpose(2, 3)
+        imgs = torch.index_select(
+                imgs,
+                2,
+                torch.linspace(
+                    0,
+                    imgs.shape[2] - 1,
+                    self.pred_t_dim,
+                )
+                .long()
+                .to(imgs.device),
+            )
+        pred_v = self.un_pixnorm(imgs, pred_v, 'v')
+        pred_a = self.un_pixnorm(audio, pred_a, 'a')
+
         pred_video = self.video_unpatchify(pred_v)
         pred_audio = self.unpatchify(pred_a, 1, int(audio.shape[2]/self.patch_embed_a.patch_size[0]), int(audio.shape[3]/self.patch_embed_a.patch_size[1]), 16)
 
         return pred_video, pred_audio, mask_v, mask_a, imgs, audio
+
+    def un_pixnorm(self, imgs, pred, modailty):
+        if modailty == 'v':
+            imgs = self.video_patchify(imgs)
+        elif modailty == 'a':
+            imgs = self.patchify(imgs, 1, int(imgs.shape[2]/self.patch_embed_a.patch_size[0]), int(imgs.shape[3]/self.patch_embed_a.patch_size[1]), 16)
+
+        mean = imgs.mean(dim=-1, keepdim=True)
+        var = imgs.var(dim=-1, keepdim=True)
+
+        pred = pred * (var + 1.0e-6) ** 0.5 + mean
+        return pred
 
     # used only for inpainting, ignore if inpainting is not of interest
     def forward_inpaint(self, audio, imgs, mask_ratio_a=0.75, mask_ratio_v=0.75, mask_mode='unstructured'):
@@ -561,7 +620,9 @@ class Uni_CMAEFT(nn.Module):
         self.modality_v = nn.Parameter(torch.zeros(1, 1, embed_dim))
 
         self.pos_embed_a = nn.Parameter(torch.zeros(1, self.patch_embed_a.num_patches, embed_dim), requires_grad=tr_pos)  # fixed sin-cos embedding
-        self.pos_embed_v = nn.Parameter(torch.zeros(1, self.patch_embed_v.num_patches, embed_dim), requires_grad=tr_pos)  # fixed sin-cos embedding
+        self.pos_embed_v_t = nn.Parameter(torch.zeros(1, self.patch_embed_v.t_grid_size, embed_dim),requires_grad=tr_pos)  # 时间位置编码
+        self.pos_embed_v_s = nn.Parameter(torch.zeros(1, int(self.patch_embed_v.num_patches/self.patch_embed_v.t_grid_size), embed_dim),requires_grad=tr_pos)  # 空间位置编码
+        self.pos_embed_v = nn.Parameter(torch.zeros(1, self.patch_embed_v.t_grid_size, int(self.patch_embed_v.num_patches/self.patch_embed_v.t_grid_size), embed_dim), requires_grad=tr_pos)  # 时空联合位置编码
 
         self.blocks = nn.ModuleList([Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, qk_scale=None, norm_layer=norm_layer) for i in range(encoder_depth)])
         
@@ -587,8 +648,19 @@ class Uni_CMAEFT(nn.Module):
         pos_embed_a = get_2d_sincos_pos_embed(self.pos_embed_a.shape[-1], 8, int(self.patch_embed_a.num_patches/8), cls_token=False)
         self.pos_embed_a.data.copy_(torch.from_numpy(pos_embed_a).float().unsqueeze(0))
 
-        pos_embed_v = get_2d_sincos_pos_embed(self.pos_embed_v.shape[-1], int(self.patch_embed_v.num_patches /20), int(self.patch_embed_v.num_patches /40), cls_token=False)
-        self.pos_embed_v.data.copy_(torch.from_numpy(pos_embed_v).float().unsqueeze(0))
+                # add by archie
+        pos_embed_v_t, pos_embed_v_s, _ = divide_st_pos(int((self.patch_embed_v.num_patches/self.patch_embed_v.t_grid_size) ** 0.5),
+                                                        int((self.patch_embed_v.num_patches/self.patch_embed_v.t_grid_size) ** 0.5),  # patch的长和宽
+                                                        self.patch_embed_v.t_grid_size,  # 时间序列长度
+                                                        self.pos_embed_v.shape[-1],  # num_hidden
+                                                        random_temporal_pos=False, # 是否加入随机偏移变量环节过拟合
+                                                        train_mode=True)  
+        self.pos_embed_v_t.data.copy_(pos_embed_v_t.float().unsqueeze(0))
+        self.pos_embed_v_s.data.copy_(pos_embed_v_s.float().unsqueeze(0))
+
+        pos_embed_v = self.pos_embed_v_s.data.unsqueeze(1) + self.pos_embed_v_t.data.unsqueeze(2)
+        self.pos_embed_v.data.copy_(pos_embed_v)
+
 
         w = self.patch_embed_a.proj.weight.data
         torch.nn.init.xavier_uniform_(w.view([w.shape[0], -1]))
@@ -621,8 +693,8 @@ class Uni_CMAEFT(nn.Module):
 
             v = self.patch_embed_v(v)
             B, T, L, D = v.shape
-            v = v.view(B, T*L, D)
             v = v + self.pos_embed_v
+            v = v.view(B, T*L, D)
             v = v + self.modality_v
 
             for blk in self.blocks:
@@ -645,13 +717,13 @@ class Uni_CMAEFT(nn.Module):
             a = a + self.pos_embed_a
             a = a + self.modality_a
 
-            for blk in self.blocks_a:
-                a = blk(a)
-
-            # note here uses the 'a' normalization, it is used in both training and inference, so it is fine
-            for blk in self.blocks_u:
+            for blk in self.blocks:
                 a = blk(a, 'a')
-            a = self.norm_a(a)
+
+            # # note here uses the 'a' normalization, it is used in both training and inference, so it is fine
+            # for blk in self.blocks:
+            #     a = blk(a, 'a')
+            a = self.norm_a(a) # 相同的，无法更新的norm
             x = a.mean(dim=1)
             x = self.mlp_head(x)
             return x
@@ -659,16 +731,18 @@ class Uni_CMAEFT(nn.Module):
         # finetune with only image (and inference with only audio when the model is finetuned with only image)
         elif mode == 'videoonly':
             v = self.patch_embed_v(v)
+            B, T, L, D = v.shape
             v = v + self.pos_embed_v
+            v = v.view(B, T*L, D)
             v = v + self.modality_v
 
-            for blk in self.blocks_v:
-                v = blk(v)
-
-            # note here uses the 'v' normalization, it is used in both training and inference, so it is fine
-            for blk in self.blocks_u:
+            for blk in self.blocks:
                 v = blk(v, 'v')
-            v = self.norm_v(v)
+
+            # # note here uses the 'v' normalization, it is used in both training and inference, so it is fine
+            # for blk in self.blocks_u:
+            #     v = blk(v, 'v')
+            v = self.norm_v(v) # 这个norm是对比学习之前的那个norm，无法更新
             x = v.mean(dim=1)
             x = self.mlp_head(x)
             return x

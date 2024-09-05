@@ -46,7 +46,8 @@ parser.add_argument('-w', '--num-workers', default=32, type=int, metavar='NW', h
 parser.add_argument("--n-epochs", type=int, default=1, help="number of maximum training epochs")
 # not used in the formal experiments, only for preliminary experiments
 parser.add_argument("--lr_patience", type=int, default=2, help="how many epoch to wait to reduce lr if mAP doesn't improve")
-parser.add_argument("--lr_adapt", help='if use adaptive learning rate', type=ast.literal_eval)
+parser.add_argument("--lr_scheduler", help='which lr scheduler to use', type=str, default='step', choices=['plateau', 'step', 'cosine'])
+parser.add_argument("--warmup_epochs", type=int, default=0, help="how many epoch to warmup")
 parser.add_argument("--metrics", type=str, default="mAP", help="the main evaluation metrics in finetuning", choices=["mAP", "acc"])
 parser.add_argument('--warmup', help='if use warmup learning rate scheduler', type=ast.literal_eval, default='True')
 parser.add_argument("--lrscheduler_start", default=10, type=int, help="when to start decay in finetuning")
@@ -57,6 +58,11 @@ parser.add_argument('--save_model', help='save the model or not', type=ast.liter
 
 parser.add_argument("--mixup", type=float, default=0, help="how many (0-1) samples need to be mixup during training")
 parser.add_argument("--bal", type=str, default=None, help="use balanced sampling or not")
+
+parser.add_argument("--pred_t_dim", type=int, default=8, help="the number of frames to predict in the future")
+parser.add_argument("--encoder_depth", type=int, default=12, help="the depth of the encoder")
+parser.add_argument("--decoder_depth", type=int, default=8, help="the depth of the decoder")
+parser.add_argument("--bidirect_contrast", type=ast.literal_eval, default=False, help="if use bidirectional contrastive loss")
 
 parser.add_argument("--cont_model", help='previous pretrained model', type=str, default=None)
 parser.add_argument("--weight_file", type=str, default=None, help="path to weight file")
@@ -160,7 +166,16 @@ if args.data_eval != None:
 
 if args.model == 'uni-cmae':
     print('pretrain a uni model with 12 layers')
-    audio_model = models.Uni_CMAE(img_size=im_res, audio_length=args.target_length, norm_pix_loss=args.norm_pix_loss, encoder_depth=12, tr_pos=args.tr_pos)
+    audio_model = models.Uni_CMAE(
+                                img_size=im_res, 
+                                audio_length=args.target_length, 
+                                norm_pix_loss=args.norm_pix_loss, 
+                                encoder_depth=args.encoder_depth, 
+                                decoder_depth = args.decoder_depth, 
+                                tr_pos=args.tr_pos, 
+                                pred_t_dim=args.pred_t_dim,
+                                bidirect_contrast=args.bidirect_contrast,
+                                )
 else:
     raise ValueError('model not supported')
 

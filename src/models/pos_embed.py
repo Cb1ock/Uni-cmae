@@ -34,6 +34,24 @@ import torch
 #         pos_embed = np.concatenate([np.zeros([1, embed_dim]), pos_embed], axis=0)
 #     return pos_embed
 
+def divide_st_pos(max_frames, num_patches, time_len, out_dim, random_temporal_pos, train_mode):
+    spatial_pos_embed = get_2d_sincos_pos_embed(out_dim, int(num_patches), int(num_patches))
+    temporal_pos_embed = get_1d_sincos_pos_embed(out_dim, time_len)
+
+    if train_mode and random_temporal_pos:
+        temporal_pos_ids = torch.arange(max_frames, dtype=torch.long) + \
+                           torch.randint(0, max_frames - time_len + 1, size=(1,), dtype=torch.long)
+    else:
+        temporal_pos_ids = torch.arange(time_len, dtype=torch.long)
+
+    temporal_pos_embed = temporal_pos_embed[temporal_pos_ids]
+    spatial_pos_embed = torch.tensor(spatial_pos_embed)
+    temporal_pos_embed = torch.tensor(temporal_pos_embed)
+    # broadcasting
+    pos_embed = temporal_pos_embed.unsqueeze(1) + spatial_pos_embed.unsqueeze(0)
+
+    return temporal_pos_embed, spatial_pos_embed, pos_embed
+
 def get_2d_sincos_pos_embed(embed_dim, grid_h_size, grid_w_size, cls_token=False):
     """
     grid_size: int of the grid height and width
@@ -62,6 +80,9 @@ def get_2d_sincos_pos_embed_from_grid(embed_dim, grid):
     emb = np.concatenate([emb_h, emb_w], axis=1) # (H*W, D)
     return emb
 
+def get_1d_sincos_pos_embed(embed_dim, length):
+    pos = np.arange(length, dtype=np.float32)
+    return get_1d_sincos_pos_embed_from_grid(embed_dim, pos)
 
 def get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
     """
