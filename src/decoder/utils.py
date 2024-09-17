@@ -144,6 +144,54 @@ def spatial_sampling(
         frames = transform.uniform_crop(frames, crop_size, spatial_idx)
     return frames
 
+import random
+
+def random_crop_with_roi(frames, crop_bottom, crop_left, crop_right):
+    """
+    Randomly crops the frames while ensuring the ROI is included.
+    Args:
+        frames (tensor): Video frames of shape T x H x W x C.
+        crop_size (int): The desired crop size.
+        crop_bottom (int): Pixels from the bottom to include.
+        crop_left (int): Pixels from the left to include.
+        crop_right (int): Pixels from the right to include.
+    Returns:
+        frames_cropped (tensor): Cropped frames including the ROI.
+    """
+    crop_size = 160
+    _, h, w, _ = frames.shape
+    print(f'frames.shape: {frames.shape}')
+    # Define the ROI boundaries
+    roi_left = crop_left
+    roi_right = w - crop_right
+    roi_bottom = h 
+    roi_top = h - crop_bottom
+
+    jitter = 10
+    # Calculate valid ranges for the top-left corner of the crop
+    x1_min = max(0, roi_right - crop_size - jitter)
+    x1_max = min(roi_left + jitter , w - crop_size)
+    y1_min = max(0, roi_top - crop_size)
+    y1_max = ( h - crop_size ) // 4
+
+    
+    # Ensure the crop size is sufficient to include the ROI
+    if x1_max < x1_min or y1_max < y1_min:
+        raise ValueError("Crop size is too small to include the ROI")
+
+    # Randomly select the top-left corner within valid ranges
+    x1 = random.randint(int(x1_min), int(x1_max))
+    y1 = random.randint(int(y1_min), int(y1_max))
+    print(f'x1 min: {x1_min}, x1 max: {x1_max}')
+    print(f'y1 min: {y1_min}, y1 max: {y1_max}')
+    x2 = x1 + crop_size
+    y2 = y1 + crop_size
+
+    print(f'x1: {x1}, y1: {y1}, x2: {x2}, y2: {y2}')
+    # Crop the frames
+    frames_cropped = frames[:, y1:y2, x1:x2, :]
+
+    return frames_cropped
 
 def as_binary_vector(labels, num_classes):
     """

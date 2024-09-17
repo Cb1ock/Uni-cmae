@@ -8,7 +8,8 @@ import random
 import numpy as np
 import torch
 import torchvision.io as io
-
+import os
+from PIL import Image
 
 def temporal_sampling(frames, start_idx, end_idx, num_samples):
     """
@@ -175,7 +176,7 @@ def decode(
             read_video_stream="visual" in modalities,
             video_width=0,
             video_height=0,
-            video_min_dimension=max_spatial_scale,
+            #video_min_dimension=max_spatial_scale,
             video_pts_range=(video_start_pts, video_end_pts),
             video_timebase_numerator=video_meta["video_numerator"],
             video_timebase_denominator=video_meta["video_denominator"],
@@ -191,7 +192,7 @@ def decode(
                 read_video_stream="visual" in modalities,
                 video_width=0,
                 video_height=0,
-                video_min_dimension=max_spatial_scale,
+                #video_min_dimension=max_spatial_scale,
                 video_pts_range=(video_start_pts, video_end_pts),
                 video_timebase_numerator=video_meta["video_numerator"],
                 video_timebase_denominator=video_meta["video_denominator"],
@@ -205,10 +206,6 @@ def decode(
         return None, fps, decode_all_video
     return v_frames, fps, decode_all_video
 
-import os
-from PIL import Image
-import torch
-import numpy as np
 
 def load_frames_from_folder(folder_path):
     """
@@ -234,13 +231,20 @@ def load_frames_from_folder(folder_path):
         max_width = max(max_width, frame.width)
         max_height = max(max_height, frame.height)
 
+    # 计算方形的边长
+    max_side = max(max_width, max_height)
+
     for frame_file in frame_files:
         frame_path = os.path.join(folder_path, frame_file)
         frame = Image.open(frame_path)
         
-        # 创建一个新的图像，填充为最大尺寸
-        new_frame = Image.new("RGB", (max_width, max_height))
-        new_frame.paste(frame, (0, 0))
+        # 创建一个新的方形图像，边长为 max_side
+        new_frame = Image.new("RGB", (max_side, max_side))
+        
+        # 计算粘贴位置，使原始帧居中
+        paste_x = (max_side - frame.width) // 2
+        paste_y = (max_side - frame.height) // 2
+        new_frame.paste(frame, (paste_x, paste_y))
         
         # 将图像转换为张量，并添加到列表中
         frame_tensor = torch.tensor(np.array(new_frame))

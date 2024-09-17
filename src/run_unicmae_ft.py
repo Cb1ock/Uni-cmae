@@ -13,7 +13,7 @@ import pickle
 import sys
 import time
 import torch
-from torch.utils.data import WeightedRandomSampler
+from torch.utils.data import WeightedRandomSampler, Subset
 basepath = os.path.dirname(os.path.dirname(sys.path[0]))
 sys.path.append(basepath)
 import dataloader as dataloader
@@ -22,7 +22,8 @@ import numpy as np
 import warnings
 import json
 from sklearn import metrics
-from traintest_ft import train, validate
+from traintest_ft import train, validate, test
+from collections import Counter
 
 # finetune cav-mae model
 
@@ -31,7 +32,7 @@ print("I am process %s, running on %s: starting (%s)" % (os.getpid(), os.uname()
 parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 parser.add_argument("--data-train", type=str, default='', help="training data json")
 parser.add_argument("--data-val", type=str, default='', help="validation data json")
-parser.add_argument("--data-eval", type=str, default=None, help="evaluation data json")
+parser.add_argument("--data-test", type=str, default=None, help="test data json")
 parser.add_argument("--label-csv", type=str, default='', help="csv with class labels")
 parser.add_argument("--n_class", type=int, default=527, help="number of classes")
 parser.add_argument("--model", type=str, default='ast', help="the model used")
@@ -41,15 +42,17 @@ parser.add_argument("--dataset_std", type=float, help="the dataset std, used for
 parser.add_argument("--target_length", type=int, help="the input length in frames")
 parser.add_argument("--noise", help='if use balance sampling', type=ast.literal_eval)
 
+parser.add_argument('--num_tests', default=1, type=int, metavar='N', help='number of tests to run')
+
 parser.add_argument("--exp-dir", type=str, default="", help="directory to dump experiments")
 parser.add_argument('--lr', '--learning-rate', default=0.001, type=float, metavar='LR', help='initial learning rate')
-parser.add_argument("--optim", type=str, default="adam", help="training optimizer", choices=["sgd", "adam"])
+parser.add_argument("--optimizer", type=str, default="adam", help="training optimizer", choices=["sgd", "adam"])
 parser.add_argument('-b', '--batch-size', default=48, type=int, metavar='N', help='mini-batch size')
 parser.add_argument('-w', '--num-workers', default=32, type=int, metavar='NW', help='# of workers for dataloading (default: 32)')
 parser.add_argument("--n-epochs", type=int, default=10, help="number of maximum training epochs")
 # not used in the formal experiments, only in preliminary experiments
 parser.add_argument("--lr_patience", type=int, default=1, help="how many epoch to wait to reduce lr if mAP doesn't improve")
-parser.add_argument("--lr_adapt", help='if use adaptive learning rate', type=ast.literal_eval)
+
 parser.add_argument("--metrics", type=str, default="mAP", help="the main evaluation metrics in finetuning", choices=["mAP", "acc", 'uar', 'war','waf'])
 parser.add_argument("--loss", type=str, default="BCE", help="the loss function for finetuning, depend on the task", choices=["BCE", "CE"])
 parser.add_argument('--warmup', help='if use warmup learning rate scheduler', type=ast.literal_eval, default='True')
@@ -67,7 +70,7 @@ parser.add_argument("--n-print-steps", type=int, default=100, help="number of st
 parser.add_argument('--save_model', help='save the model or not', type=ast.literal_eval)
 
 parser.add_argument("--mixup", type=float, default=0, help="how many (0-1) samples need to be mixup during training")
-parser.add_argument("--bal", type=str, default=None, help="use balanced sampling or not")
+parser.add_argument("--balance", type=str, default=None, help="use balanced sampling or not")
 
 parser.add_argument("--label_smooth", type=float, default=0.1, help="label smoothing factor")
 parser.add_argument("--weight_file", type=str, default=None, help="path to weight file")
@@ -80,6 +83,8 @@ parser.add_argument('--skip_frame_agg', help='if do frame agg', type=ast.literal
 
 parser.add_argument("--dataset_type", type=str, default='frame', help="the dataset type used", choices=["frame", "video"])
 parser.add_argument("--im_res", type=int, default=160, help="the image resolution")
+parser.add_argument("--lr_scheduler", type=str, default='cosine', help="the learning rate scheduler", choices=["cosine", "step", "plateau"])
+parser.add_argument("--debug", help="enable debug mode", type=ast.literal_eval, default=False)
 args = parser.parse_args()
 
 # all exp in this work is based on 224 * 224 image
@@ -89,6 +94,8 @@ audio_conf = {'num_mel_bins': 128, 'target_length': args.target_length, 'freqm':
               'noise':args.noise, 'label_smooth': args.label_smooth, 'im_res': im_res}
 val_audio_conf = {'num_mel_bins': 128, 'target_length': args.target_length, 'freqm': 0, 'timem': 0, 'mixup': 0, 'dataset': args.dataset,
                   'mode':'val', 'mean': args.dataset_mean, 'std': args.dataset_std, 'noise': False, 'im_res': im_res}
+test_audio_conf = {'num_mel_bins': 128, 'target_length': args.target_length, 'freqm': 0, 'timem': 0, 'mixup': 0, 'dataset': args.dataset,
+                   'mode':'test', 'mean': args.dataset_mean, 'std': args.dataset_std, 'noise': False, 'im_res': im_res}
 video_conf = {
     'dataset_type' : args.dataset_type, 
     'aa_type': "rand-m7-n4-mstd0.5-inc1",
@@ -101,7 +108,7 @@ video_conf = {
     'jitter_scales_relative': [0.5, 1.0],
     'repeat_aug': 1,
     'num_retries': 10,
-    'train_jitter_scales': (256, 320),
+    'train_jitter_scales': (224, 224),
     'train_crop_size': im_res,
     'train_random_horizontal_flip': True,
     'test_num_ensemble_views': 10,
@@ -116,31 +123,54 @@ video_conf = {
     'inverse_uniform_sampling': False,
     'use_offset_sampling': True
 }
-if args.bal == 'bal':
+
+def get_loader(dataset, batch_size, shuffle, num_workers, pin_memory, drop_last, debug):
+    if debug:
+        dataset = Subset(dataset, range(100))
+    return torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, pin_memory=pin_memory, drop_last=drop_last)
+def get_labels_and_weights(dataset):
+    """
+    获取数据集的标签和样本权重
+    """
+    labels = []
+    for _, _, label in dataset:  # 假设dataset[i]返回(input, label)
+        labels.append(label)
+    
+    class_counts = Counter(labels)
+    weights = [1.0 / class_counts[label] for label in labels]
+    return labels, weights
+
+if args.balance == 'bal':
     print('balanced sampler is being used')
-    if args.weight_file == None:
-        samples_weight = np.loadtxt(args.data_train[:-5]+'_weight.csv', delimiter=',')
-    else:
-        samples_weight = np.loadtxt(args.data_train[:-5] + '_' + args.weight_file + '.csv', delimiter=',')
+    train_dataset = dataloader.AudiosetDataset(args.data_train, label_csv=args.label_csv, audio_conf=audio_conf, video_conf=video_conf)
+    
+    # 获取标签和权重
+    labels, samples_weight = get_labels_and_weights(train_dataset)
+    
+    # 创建 WeightedRandomSampler
     sampler = WeightedRandomSampler(samples_weight, len(samples_weight), replacement=True)
 
-    train_loader = torch.utils.data.DataLoader(
-        dataloader.AudiosetDataset(args.data_train, label_csv=args.label_csv, audio_conf=audio_conf, video_conf=video_conf),
-        batch_size=args.batch_size, sampler=sampler, num_workers=args.num_workers, pin_memory=True, drop_last=True)
+
+    train_dataset = dataloader.AudiosetDataset(args.data_train, label_csv=args.label_csv, audio_conf=audio_conf, video_conf=video_conf)
+    
+    train_dataset = dataloader.AudiosetDataset(args.data_train, label_csv=args.label_csv, audio_conf=audio_conf, video_conf=video_conf)
+    if args.debug:
+        train_dataset = Subset(train_dataset, range(100))
+    
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, sampler=sampler, num_workers=args.num_workers, pin_memory=True, drop_last=True)
 else:
     print('balanced sampler is not used')
-    train_loader = torch.utils.data.DataLoader(
-        dataloader.AudiosetDataset(args.data_train, label_csv=args.label_csv, audio_conf=audio_conf, video_conf=video_conf),
-        batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True, drop_last=True)
+    train_dataset = dataloader.AudiosetDataset(args.data_train, label_csv=args.label_csv, audio_conf=audio_conf, video_conf=video_conf)
+    if args.debug:
+        train_dataset = Subset(train_dataset, range(100))
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True, drop_last=True)
 
-val_loader = torch.utils.data.DataLoader(
-    dataloader.AudiosetDataset(args.data_val, label_csv=args.label_csv, audio_conf=val_audio_conf, video_conf=video_conf),
-    batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True, drop_last=True)
+val_dataset = dataloader.AudiosetDataset(args.data_val, label_csv=args.label_csv, audio_conf=val_audio_conf, video_conf=video_conf)
+val_loader = get_loader(val_dataset, args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True, drop_last=True, debug=args.debug)
 
-if args.data_eval != None:
-    eval_loader = torch.utils.data.DataLoader(
-        dataloader.AudiosetDataset(args.data_eval, label_csv=args.label_csv, audio_conf=val_audio_conf, video_conf=video_conf),
-        batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True)
+if args.data_test != None:
+    test_dataset = dataloader.AudiosetDataset(args.data_test, label_csv=args.label_csv, audio_conf=test_audio_conf, video_conf=video_conf)
+    test_loader = get_loader(test_dataset, args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True, drop_last=True, debug=args.debug)
 
 if args.model == 'uni-cmae-ft':
     print('finetune a uni model with 12 layers')
@@ -194,65 +224,15 @@ if not isinstance(audio_model, torch.nn.DataParallel):
 if args.wa == True:
     sdA = wa_model(args.exp_dir, start_epoch=args.wa_start, end_epoch=args.wa_end)
     torch.save(sdA, args.exp_dir + "/models/audio_model_wa.pth")
+    # 删除其他模型文件
+    for epoch in range(args.wa_start, args.wa_end + 1):
+        os.remove(args.exp_dir + '/models/audio_model.' + str(epoch) + '.pth')
 else:
-    # if no wa, use the best checkpint
+    # 如果没有加权平均，使用最佳检查点
     sdA = torch.load(args.exp_dir + '/models/best_audio_model.pth', map_location='cpu')
+
 msg = audio_model.load_state_dict(sdA, strict=True)
 print(msg)
 audio_model.eval()
 
-# # skil multi-frame evaluation, for audio-only model
-# if args.skip_frame_agg == True:
-#     val_audio_conf['frame_use'] = 5
-#     val_loader = torch.utils.data.DataLoader(
-#         dataloader.AudiosetDataset(args.data_val, label_csv=args.label_csv, audio_conf=val_audio_conf),
-#         batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True)
-#     stats, audio_output, target = validate(audio_model, val_loader, args, output_pred=True)
-#     if args.metrics == 'mAP':
-#         cur_res = np.mean([stat['AP'] for stat in stats])
-#         print('mAP is {:.4f}'.format(cur_res))
-#     elif args.metrics == 'acc':
-#         cur_res = stats[0]['acc']
-#         print('acc is {:.4f}'.format(cur_res))
-# else:
-#     res = []
-#     multiframe_pred = []
-#     total_frames = 10 # change if your total frame is different
-#     for frame in range(total_frames):
-#         val_audio_conf['frame_use'] = frame
-#         val_loader = torch.utils.data.DataLoader(
-#             dataloader.AudiosetDataset(args.data_val, label_csv=args.label_csv, audio_conf=val_audio_conf),
-#             batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, pin_memory=True)
-#         stats, audio_output, target = validate(audio_model, val_loader, args, output_pred=True)
-#         print(audio_output.shape)
-#         if args.metrics == 'acc':
-#             audio_output = torch.nn.functional.softmax(audio_output.float(), dim=-1)
-#         elif args.metrics == 'mAP':
-#             audio_output = torch.nn.functional.sigmoid(audio_output.float())
-
-#         audio_output, target = audio_output.numpy(), target.numpy()
-#         multiframe_pred.append(audio_output)
-#         if args.metrics == 'mAP':
-#             cur_res = np.mean([stat['AP'] for stat in stats])
-#             print('mAP of frame {:d} is {:.4f}'.format(frame, cur_res))
-#         elif args.metrics == 'acc':
-#             cur_res = stats[0]['acc']
-#             print('acc of frame {:d} is {:.4f}'.format(frame, cur_res))
-#         res.append(cur_res)
-
-#     # ensemble over frames
-#     multiframe_pred = np.mean(multiframe_pred, axis=0)
-#     if args.metrics == 'acc':
-#         acc = metrics.accuracy_score(np.argmax(target, 1), np.argmax(multiframe_pred, 1))
-#         print('multi-frame acc is {:f}'.format(acc))
-#         res.append(acc)
-#     elif args.metrics == 'mAP':
-#         AP = []
-#         for k in range(args.n_class):
-#             # Average precision
-#             avg_precision = metrics.average_precision_score(target[:, k], multiframe_pred[:, k], average=None)
-#             AP.append(avg_precision)
-#         mAP = np.mean(AP)
-#         print('multi-frame mAP is {:.4f}'.format(mAP))
-#         res.append(mAP)
-#     np.savetxt(args.exp_dir + '/mul_frame_res.csv', res, delimiter=',')
+test(audio_model, test_loader, args, num_tests=args.num_tests)

@@ -601,7 +601,7 @@ class Uni_CMAE(nn.Module):
 class Uni_CMAEFT(nn.Module):
     def __init__(self, label_dim, img_size=224, audio_length=1024, patch_size=16, in_chans=3,
                  embed_dim=768, encoder_depth=12, num_heads=12, mlp_ratio=4., norm_layer=nn.LayerNorm, tr_pos=True,
-                 pred_t_dim=8, t_patch_size=2, num_frames=16):
+                 pred_t_dim=16, t_patch_size=2, num_frames=16):
         super().__init__()
         timm.models.vision_transformer.Block = Block
 
@@ -698,8 +698,8 @@ class Uni_CMAEFT(nn.Module):
             v = v + self.modality_v
 
             for blk in self.blocks:
-                a = blk(a, 'a')
-                v = blk(v, 'v')
+                a = blk(a)
+                v = blk(v)
 
             x = torch.cat((a, v), dim=1)
 
@@ -737,7 +737,7 @@ class Uni_CMAEFT(nn.Module):
             v = v + self.modality_v
 
             for blk in self.blocks:
-                v = blk(v, 'v')
+                v = blk(v)
 
             # # note here uses the 'v' normalization, it is used in both training and inference, so it is fine
             # for blk in self.blocks_u:

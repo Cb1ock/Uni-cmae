@@ -1,83 +1,50 @@
 import numpy as np
-from scipy import stats
 from sklearn import metrics
 import torch
-
-def d_prime(auc):
-    standard_normal = stats.norm()
-    d_prime = standard_normal.ppf(auc) * np.sqrt(2.0)
-    return d_prime
+from sklearn.metrics import precision_recall_fscore_support
 
 def calculate_stats(output, target):
-    """Calculate statistics including mAP, AUC, WAR, UAR, F1, etc.
+    """计算每个类别的统计数据，包括precision、recall、F1和样本数量，以及整体准确率。
 
-    Args:
-      output: 2d array, (samples_num, classes_num)
-      target: 2d array, (samples_num, classes_num)
+    参数:
+      output: 2维数组或张量, (样本数, 类别数)
+      target: 2维数组或张量, (样本数, 类别数)
 
-    Returns:
-      stats: list of statistic of each class.
+    返回:
+      stats: 包含每个类别统计数据和整体准确率的字典。
     """
 
-    classes_num = target.shape[-1]
-    stats = []
+    classes_num = output.shape[1]
+    stats = {}
 
-    # Accuracy, only used for single-label classification such as esc-50, not for multiple label one such as AudioSet
-    acc = metrics.accuracy_score(np.argmax(target, 1), np.argmax(output, 1))
-    # Calculate WAR and UAR
-    war = metrics.recall_score(np.argmax(target, 1), np.argmax(output, 1), average='weighted')
-    uar = metrics.recall_score(np.argmax(target, 1), np.argmax(output, 1), average='macro')
-    waf = metrics.f1_score(np.argmax(target, 1), np.argmax(output, 1), average='weighted')
-    # Class-wise statistics
+    # 将输出和目标转换为 NumPy 数组
+    if isinstance(output, torch.Tensor):
+        output = output.detach().cpu().numpy()
+    if isinstance(target, torch.Tensor):
+        target = target.detach().cpu().numpy()
+
+    # 使用argmax获取预测的类别
+    predictions = np.argmax(output, axis=1)
+    # 使用argmax将one-hot编码的标签转换为单一类别的标签
+    target_labels = np.argmax(target, axis=1)
+
+
+    # 计算整体准确率
+    accuracy = metrics.accuracy_score(target_labels, predictions)
+
+    # 计算每个类别的精度、召回率、F1分数和支持度
+    precision_cls, recall_cls, f1_cls, support = precision_recall_fscore_support(
+        target_labels, predictions, labels=range(classes_num))
+
     for k in range(classes_num):
+        stats[k] = {
+            'precision': precision_cls[k],
+            'recall': recall_cls[k],
+            'f1': f1_cls[k],
+            'sample_count': support[k]
+        }
 
-        # Average precision
-        avg_precision = metrics.average_precision_score(
-            target[:, k], output[:, k], average=None)
+    # 添加整体准确率到统计数据中
+    stats['overall'] = {'accuracy': accuracy}
 
-        # AUC
-        try:
-            auc = metrics.roc_auc_score(target[:, k], output[:, k], average=None)
-
-            # Precisions, recalls
-            (precisions, recalls, thresholds) = metrics.precision_recall_curve(
-                target[:, k], output[:, k])
-
-            # FPR, TPR
-            (fpr, tpr, thresholds) = metrics.roc_curve(target[:, k], output[:, k])
-
-            # F1 Score
-            f1 = metrics.f1_score(target[:, k], output[:, k] > 0.5)
-
-            save_every_steps = 1000     # Sample statistics to reduce size
-            dict = {'precisions': precisions[0::save_every_steps],
-                    'recalls': recalls[0::save_every_steps],
-                    'AP': avg_precision,
-                    'fpr': fpr[0::save_every_steps],
-                    'fnr': 1. - tpr[0::save_every_steps],
-                    'auc': auc,
-                    'f1': f1,
-                    # note acc is not class-wise, this is just to keep consistent with other metrics
-                    'acc': acc,
-                    'uar': uar,
-                    'war': war,
-                    'waf': waf
-                    }
-        except:
-            dict = {'precisions': -1,
-                    'recalls': -1,
-                    'AP': avg_precision,
-                    'fpr': -1,
-                    'fnr': -1,
-                    'auc': -1,
-                    'f1': -1,
-                    # note acc is not class-wise, this is just to keep consistent with other metrics
-                    'acc': acc,
-                    'uar': uar,
-                    'war': war,
-                    'waf': waf
-                    }
-            print('class {:s} no true sample'.format(str(k)))
-        stats.append(dict)
-
-    return stats
+    return stats, target_labels, predictions

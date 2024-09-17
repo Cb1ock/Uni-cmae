@@ -17,21 +17,29 @@ import numpy as np
 import pickle
 from torch.cuda.amp import autocast,GradScaler
 
-def train(audio_model, train_loader, test_loader, args):
+def train(audio_model, train_loader, test_loader, args, n_print_steps=100):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print('running on ' + str(device))
     torch.set_grad_enabled(True)
 
-    batch_time, per_sample_time, data_time, per_sample_data_time, loss_meter, per_sample_dnn_time = AverageMeter(), AverageMeter(), AverageMeter(), AverageMeter(), AverageMeter(), AverageMeter()
+    batch_time = AverageMeter()
+    per_sample_time = AverageMeter()
+    data_time = AverageMeter()
+    per_sample_data_time = AverageMeter()
+    loss_meter = AverageMeter()
+    per_sample_dnn_time = AverageMeter()
     progress = []
-    best_epoch, best_mAP, best_acc, best_uar, best_war = 0, -np.inf, -np.inf, -np.inf, -np.inf
+    best_epoch, best_metric = 0, -np.inf
+
+    n_print_steps = max(len(train_loader) // args.batch_size // 10, 100)
+    
     global_step, epoch = 0, 0
     start_time = time.time()
     exp_dir = args.exp_dir
 
     def _save_progress():
-        progress.append([epoch, global_step, best_epoch, best_mAP, time.time() - start_time])
-        with open("%s/progress.pkl" % exp_dir, "wb") as f:
+        progress.append([epoch, global_step, best_epoch, best_metric, time.time() - start_time])
+        with open(f"{exp_dir}/progress.pkl", "wb") as f:
             pickle.dump(progress, f)
 
     if not isinstance(audio_model, nn.DataParallel):
@@ -39,19 +47,19 @@ def train(audio_model, train_loader, test_loader, args):
 
     audio_model = audio_model.to(device)
 
-    # possible mlp layer name list, mlp layers are newly initialized layers in the finetuning stage (i.e., not pretrained) and should use a larger lr during finetuning
-    mlp_list = ['mlp_head.0.weight', 'mlp_head.0.bias', 'mlp_head.1.weight', 'mlp_head.1.bias',
-                'mlp_head2.0.weight', 'mlp_head2.0.bias', 'mlp_head2.1.weight', 'mlp_head2.1.bias',
-                'mlp_head_a.0.weight', 'mlp_head_a.0.bias', 'mlp_head_a.1.weight', 'mlp_head_a.1.bias',
-                'mlp_head_v.0.weight', 'mlp_head_v.0.bias', 'mlp_head_v.1.weight', 'mlp_head_v.1.bias',
-                'mlp_head_concat.0.weight', 'mlp_head_concat.0.bias', 'mlp_head_concat.1.weight', 'mlp_head_concat.1.bias']
-    mlp_params = list(filter(lambda kv: kv[0] in mlp_list, audio_model.module.named_parameters()))
-    base_params = list(filter(lambda kv: kv[0] not in mlp_list, audio_model.module.named_parameters()))
-    mlp_params = [i[1] for i in mlp_params]
-    base_params = [i[1] for i in base_params]
+    # 定义 MLP 层的名称列表（新初始化的层）
+    mlp_list = [
+        'mlp_head.0.weight', 'mlp_head.0.bias', 'mlp_head.1.weight', 'mlp_head.1.bias',
+        'mlp_head2.0.weight', 'mlp_head2.0.bias', 'mlp_head2.1.weight', 'mlp_head2.1.bias',
+        'mlp_head_a.0.weight', 'mlp_head_a.0.bias', 'mlp_head_a.1.weight', 'mlp_head_a.1.bias',
+        'mlp_head_v.0.weight', 'mlp_head_v.0.bias', 'mlp_head_v.1.weight', 'mlp_head_v.1.bias',
+        'mlp_head_concat.0.weight', 'mlp_head_concat.0.bias', 'mlp_head_concat.1.weight', 'mlp_head_concat.1.bias'
+    ]
+    mlp_params = [param for name, param in audio_model.module.named_parameters() if name in mlp_list]
+    base_params = [param for name, param in audio_model.module.named_parameters() if name not in mlp_list]
 
-    # if freeze the pretrained parameters and only train the newly initialized model (linear probing)
-    if args.freeze_base == True:
+    # 如果需要，冻结预训练的参数
+    if args.freeze_base:
         print('Pretrained backbone parameters are frozen.')
         for param in base_params:
             param.requires_grad = False
@@ -60,23 +68,31 @@ def train(audio_model, train_loader, test_loader, args):
     print('Total parameter number is : {:.3f} million'.format(sum(p.numel() for p in audio_model.parameters()) / 1e6))
     print('Total trainable parameter number is : {:.3f} million'.format(sum(p.numel() for p in trainables) / 1e6))
 
-    print('The newly initialized mlp layer uses {:.3f} x larger lr'.format(args.head_lr))
-    optimizer = torch.optim.Adam([{'params': base_params, 'lr': args.lr}, {'params': mlp_params, 'lr': args.lr * args.head_lr}], weight_decay=5e-7, betas=(0.95, 0.999))
+    print('The newly initialized MLP layer uses {:.3f} x larger lr'.format(args.head_lr))
+    optimizer = torch.optim.Adam([
+        {'params': base_params, 'lr': args.lr},
+        {'params': mlp_params, 'lr': args.lr * args.head_lr}
+    ], weight_decay=5e-7, betas=(0.95, 0.999))
+
     base_lr = optimizer.param_groups[0]['lr']
     mlp_lr = optimizer.param_groups[1]['lr']
-    lr_list = [args.lr, mlp_lr]
+    lr_list = [base_lr, mlp_lr]
     print('base lr, mlp lr : ', base_lr, mlp_lr)
 
     print('Total newly initialized MLP parameter number is : {:.3f} million'.format(sum(p.numel() for p in mlp_params) / 1e6))
     print('Total pretrained backbone parameter number is : {:.3f} million'.format(sum(p.numel() for p in base_params) / 1e6))
 
-    # only for preliminary test, formal exps should use fixed learning rate scheduler
-    if args.lr_adapt == True:
+    # 学习率调度器
+    if args.lr_scheduler == 'plateau':
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=args.lr_patience, verbose=True)
-        print('Override to use adaptive learning rate scheduler.')
-    else:
-        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, list(range(args.lrscheduler_start, 1000, args.lrscheduler_step)),gamma=args.lrscheduler_decay)
-        print('The learning rate scheduler starts at {:d} epoch with decay rate of {:.3f} every {:d} epoches'.format(args.lrscheduler_start, args.lrscheduler_decay, args.lrscheduler_step))
+        print('Using adaptive learning rate scheduler.')
+    elif args.lr_scheduler == 'step':
+        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, list(range(args.lrscheduler_start, 1000, args.lrscheduler_step)), gamma=args.lrscheduler_decay)
+        print('The learning rate scheduler starts at epoch {:d} with decay rate of {:.3f} every {:d} epochs'.format(args.lrscheduler_start, args.lrscheduler_decay, args.lrscheduler_step))
+    elif args.lr_scheduler == 'cosine':
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.n_epochs, eta_min=0)
+        print('Using cosine annealing learning rate scheduler.')
+
     main_metrics = args.metrics
     if args.loss == 'BCE':
         loss_fn = nn.BCEWithLogitsLoss()
@@ -84,15 +100,16 @@ def train(audio_model, train_loader, test_loader, args):
         loss_fn = nn.CrossEntropyLoss()
     args.loss_fn = loss_fn
 
-    print('now training with {:s}, main metrics: {:s}, loss function: {:s}, learning rate scheduler: {:s}'.format(str(args.dataset), str(main_metrics), str(loss_fn), str(scheduler)))
+    print('Now training with dataset: {:s}, main metrics: {:s}, loss function: {:s}, learning rate scheduler: {:s}'.format(
+        str(args.dataset), str(main_metrics), str(loss_fn), str(scheduler)
+    ))
 
-    epoch += 1
     scaler = GradScaler()
 
     print("current #steps=%s, #epochs=%s" % (global_step, epoch))
     print("start training...")
-    result = np.zeros([args.n_epochs, 7])
-    audio_model.train()
+    result = np.zeros([args.n_epochs, 4])
+
     while epoch < args.n_epochs + 1:
         begin_time = time.time()
         end_time = time.time()
@@ -108,7 +125,7 @@ def train(audio_model, train_loader, test_loader, args):
             labels = labels.to(device, non_blocking=True)
 
             data_time.update(time.time() - end_time)
-            per_sample_data_time.update((time.time() - end_time) / a_input.shape[0])
+            per_sample_data_time.update((time.time() - end_time) / B)
             dnn_start_time = time.time()
 
             with autocast():
@@ -122,21 +139,19 @@ def train(audio_model, train_loader, test_loader, args):
 
             loss_meter.update(loss.item(), B)
             batch_time.update(time.time() - end_time)
-            per_sample_time.update((time.time() - end_time)/a_input.shape[0])
-            per_sample_dnn_time.update((time.time() - dnn_start_time)/a_input.shape[0])
+            per_sample_time.update((time.time() - end_time) / B)
+            per_sample_dnn_time.update((time.time() - dnn_start_time) / B)
 
-            print_step = global_step % args.n_print_steps == 0
-            early_print_step = epoch == 0 and global_step % (args.n_print_steps/10) == 0
+            print_step = global_step % n_print_steps == 0
+            early_print_step = epoch == 0 and global_step % (n_print_steps // 10) == 0
             print_step = print_step or early_print_step
 
             if print_step and global_step != 0:
-                print('Epoch: [{0}][{1}/{2}]\t'
-                  'Per Sample Total Time {per_sample_time.avg:.5f}\t'
-                  'Per Sample Data Time {per_sample_data_time.avg:.5f}\t'
-                  'Per Sample DNN Time {per_sample_dnn_time.avg:.5f}\t'
-                  'Train Loss {loss_meter.val:.4f}\t'.format(
-                   epoch, i, len(train_loader), per_sample_time=per_sample_time, per_sample_data_time=per_sample_data_time,
-                      per_sample_dnn_time=per_sample_dnn_time, loss_meter=loss_meter), flush=True)
+                print(f'Epoch: [{epoch}][{i}/{len(train_loader)}]\t'
+                      f'Per Sample Total Time {per_sample_time.avg:.5f}\t'
+                      f'Per Sample Data Time {per_sample_data_time.avg:.5f}\t'
+                      f'Per Sample DNN Time {per_sample_dnn_time.avg:.5f}\t'
+                      f'Train Loss {loss_meter.val:.4f}\t', flush=True)
                 if np.isnan(loss_meter.avg):
                     print("training diverged...")
                     return
@@ -146,86 +161,86 @@ def train(audio_model, train_loader, test_loader, args):
 
         print('start validation')
 
-        stats, valid_loss = validate(audio_model, test_loader, args)
+        # 获取验证结果和损失
+        metrics_result, valid_loss = validate(audio_model, test_loader, args)
 
-        mAP = np.mean([stat['AP'] for stat in stats])
-        mAUC = np.mean([stat['auc'] for stat in stats])
-        uar = stats[0]['uar']
-        war = stats[0]['war']
-        waf = stats[0]['waf']
-        acc = stats[0]['acc'] # this is just a trick, acc of each class entry is the same, which is the accuracy of all classes, not class-wise accuracy
+        # 提取指标
+        accuracy = metrics_result['accuracy']
+        weighted_recall = metrics_result['weighted']['recall']
+        macro_recall = metrics_result['macro']['recall']
 
-        
-        print("mAP: {:.6f}".format(mAP))
-        print("war: {:.6f}".format(war))
-        print("uar: {:.6f}".format(uar))
-        print("acc: {:.6f}".format(acc))
-        print("waf: {:.6f}".format(waf))
+        print(f"Accuracy: {accuracy:.6f}")
+        print(f"Weighted Recall (WAR): {weighted_recall:.6f}")
+        print(f"Macro Recall (UAR): {macro_recall:.6f}")
+        print(f"Training loss: {loss_meter.avg:.6f}")
+        print(f"Validation loss: {valid_loss:.6f}")
 
-        print("AUC: {:.6f}".format(mAUC))
-        print("d_prime: {:.6f}".format(d_prime(mAUC)))
-        print("train_loss: {:.6f}".format(loss_meter.avg))
-        print("valid_loss: {:.6f}".format(valid_loss))
-
-        result[epoch-1, :] = [acc, uar, war, waf, mAP, mAUC, optimizer.param_groups[0]['lr']]
-        np.savetxt(exp_dir + '/result.csv', result, delimiter=',')
+        result[epoch - 1, :] = [accuracy, weighted_recall, macro_recall, optimizer.param_groups[0]['lr']]
+        np.savetxt(f"{exp_dir}/result.csv", result, delimiter=',')
         print('validation finished')
 
-        if mAP > best_mAP:
-            best_mAP = mAP
-            if main_metrics == 'mAP':
-                best_epoch = epoch
+        # 根据主指标确定是否保存模型
+        current_metric = None
+        if main_metrics == 'war':
+            current_metric = weighted_recall
+        elif main_metrics == 'acc':
+            current_metric = accuracy
+        elif main_metrics == 'uar':
+            current_metric = macro_recall
 
-        if uar > best_uar:
-            best_uar = uar
-            if main_metrics == 'uar':
-                best_epoch = epoch
+        if current_metric > best_metric:
+            best_metric = current_metric
+            best_epoch = epoch
+            # 保存最佳模型
+            torch.save(audio_model.state_dict(), f"{exp_dir}/models/best_audio_model.pth")
+            torch.save(optimizer.state_dict(), f"{exp_dir}/models/best_optim_state.pth")
 
-        if war > best_war:
-            best_war = war
-            if main_metrics == 'war':
-                best_epoch = epoch
-
-        if acc > best_acc:
-            best_acc = acc
-            if main_metrics == 'acc':
-                best_epoch = epoch
-
-        if best_epoch == epoch:
-            torch.save(audio_model.state_dict(), "%s/models/best_audio_model.pth" % (exp_dir))
-            torch.save(optimizer.state_dict(), "%s/models/best_optim_state.pth" % (exp_dir))
-        if args.save_model == True:
-            torch.save(audio_model.state_dict(), "%s/models/audio_model.%d.pth" % (exp_dir, epoch))
+        if args.save_model:
+            torch.save(audio_model.state_dict(), f"{exp_dir}/models/audio_model.{epoch}.pth")
 
         if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
-            if main_metrics == 'mAP':
-                scheduler.step(mAP)
-            elif main_metrics == 'acc':
-                scheduler.step(acc)
-            elif main_metrics == 'uar':
-                scheduler.step(uar)
-            elif main_metrics == 'war':
-                scheduler.step(war)
+            scheduler.step(current_metric)
         else:
             scheduler.step()
 
-        print('Epoch-{0} lr: {1}'.format(epoch, optimizer.param_groups[0]['lr']))
+        print(f'Epoch-{epoch} lr: {optimizer.param_groups[0]["lr"]}')
 
-        with open(exp_dir + '/stats_' + str(epoch) +'.pickle', 'wb') as handle:
-            pickle.dump(stats, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        # 保存指标结果
+        with open(f"{exp_dir}/stats_{epoch}.pickle", 'wb') as handle:
+            pickle.dump(metrics_result, handle, protocol=pickle.HIGHEST_PROTOCOL)
         _save_progress()
 
         finish_time = time.time()
-        print('epoch {:d} training time: {:.3f}'.format(epoch, finish_time-begin_time))
+        print('epoch {:d} training time: {:.3f}'.format(epoch, finish_time - begin_time))
 
         epoch += 1
 
+        # 重置计数器
         batch_time.reset()
         per_sample_time.reset()
         data_time.reset()
         per_sample_data_time.reset()
         loss_meter.reset()
         per_sample_dnn_time.reset()
+
+def calculate_war_uar(stats, target_labels, predictions):
+    # 计算加权平均的 precision, recall, f1
+    precision, recall, f1, _ = precision_recall_fscore_support(
+        target_labels, predictions, average='weighted')
+    
+    # 计算宏平均的 precision, recall, f1
+    macro_precision, macro_recall, macro_f1, _ = precision_recall_fscore_support(
+        target_labels, predictions, average='macro')
+    
+    # 计算准确率
+    accuracy = metrics.accuracy_score(target_labels, predictions)
+    
+    # 将结果返回
+    return {
+        'weighted': {'precision': precision, 'recall': recall, 'f1': f1},
+        'macro': {'precision': macro_precision, 'recall': macro_recall, 'f1': macro_f1},
+        'accuracy': accuracy
+    }
 
 def validate(audio_model, val_loader, args, output_pred=False):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -261,10 +276,57 @@ def validate(audio_model, val_loader, args, output_pred=False):
         target = torch.cat(A_targets)
         loss = np.mean(A_loss)
 
-        stats = calculate_stats(audio_output, target)
+        stats, target_labels, predictions = calculate_stats(audio_output, target)
+        metrics_result = calculate_war_uar(stats, target_labels, predictions)
 
     if output_pred == False:
-        return stats, loss
+        return metrics_result, loss
     else:
         # used for multi-frame evaluation (i.e., ensemble over frames), so return prediction and target
-        return stats, audio_output, target
+        return metrics_result, audio_output, target
+
+def test(audio_model, test_loader, args, num_tests=10):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if not isinstance(audio_model, nn.DataParallel):
+        audio_model = nn.DataParallel(audio_model)
+    audio_model = audio_model.to(device)
+    audio_model.eval()
+
+    for test_idx in range(num_tests):
+        batch_time = AverageMeter()
+        end = time.time()
+        A_predictions, A_targets, A_loss = [], [], []
+        with torch.no_grad():
+            for i, (a_input, v_input, labels) in enumerate(test_loader):
+                a_input = a_input.to(device)
+                v_input = v_input.to(device)
+
+                with autocast():
+                    audio_output = audio_model(a_input, v_input, args.ftmode)
+
+                predictions = audio_output.to('cpu').detach()
+
+                A_predictions.append(predictions)
+                A_targets.append(labels)
+
+                labels = labels.to(device)
+                loss = args.loss_fn(audio_output, labels)
+                A_loss.append(loss.to('cpu').detach())
+
+                batch_time.update(time.time() - end)
+                end = time.time()
+
+            audio_output = torch.cat(A_predictions)
+            target = torch.cat(A_targets)
+            loss = np.mean(A_loss)
+
+            stats, target_labels, predictions = calculate_stats(audio_output, target)
+            metrics_result = calculate_war_uar(stats, target_labels, predictions)
+
+        print(f"Test {test_idx + 1} Accuracy: {metrics_result['accuracy']:.6f}")
+        print(f"Test {test_idx + 1} Weighted Recall (WAR): {metrics_result['weighted']['recall']:.6f}")
+        print(f"Test {test_idx + 1} Macro Recall (UAR): {metrics_result['macro']['recall']:.6f}")
+        for k, v in stats.items():
+            if k != 'overall':
+                print(f"Class {k} - Precision: {v['precision']:.6f}, Recall: {v['recall']:.6f}, F1: {v['f1']:.6f}, Sample Count: {v['sample_count']}")
+        print(f"Test {test_idx + 1} Loss: {loss:.6f}")

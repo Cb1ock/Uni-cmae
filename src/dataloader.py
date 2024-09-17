@@ -20,6 +20,7 @@ import torch.nn.functional
 from torch.utils.data import Dataset
 import random
 import torchvision.transforms as T
+import torchvision.transforms.functional as F
 from PIL import Image
 import PIL
 
@@ -122,12 +123,6 @@ class AudiosetDataset(Dataset):
         # train or eval
         self.mode = self.audio_conf.get('mode')
         print('now in {:s} mode.'.format(self.mode))
-
-        # set the frame to use in the eval mode, default value for training is -1 which means random frame
-        self.frame_use = self.audio_conf.get('frame_use', -1)
-        # by default, 10 frames are used
-        self.total_frame = self.audio_conf.get('total_frame', 10)
-        print('now use frame {:d} from total {:d} frames'.format(self.frame_use, self.total_frame))
 
         # by default, all models use 224*224, other resolutions are not tested
         self.im_res = self.audio_conf.get('im_res', 224)
@@ -282,10 +277,39 @@ class AudiosetDataset(Dataset):
                     use_offset=self._use_offset_sampling,
                     rigid_decode_all_video=self.mode in ["pretrain"],
                 )
+                if self.dataset=='voxceleb2':
+                    frames = utils.random_crop_with_roi(frames,
+                                                        crop_bottom=64,
+                                                        crop_left=32,
+                                                        crop_right=32
+                                                                )
             elif self.dataset_type == 'frame':
+
+                def resize_frames(frames, size):
+                    """
+                    Resize the middle two dimensions of the frames to the specified size.
+                    Args:
+                        frames (tensor): Video frames of shape T x H x W x C.
+                        size (tuple): The desired size (height, width).
+                    Returns:
+                        frames_resized (tensor): Resized frames.
+                    """
+                    T, H, W, C = frames.shape
+                    frames_resized = torch.zeros((T, size[0], size[1], C), dtype=frames.dtype)
+                    for t in range(T):
+                        frame = frames[t]
+                        # Change from HWC to CHW using einsum
+                        frame_chw = torch.einsum('hwc->chw', frame)
+                        resized_frame = F.resize(frame_chw, size)
+                        # Change from CHW back to HWC using einsum
+                        resized_frame_hwc = torch.einsum('chw->hwc', resized_frame)
+                        frames_resized[t] = resized_frame_hwc
+                    return frames_resized
+                
                 frames = decoder.load_frames_from_folder(filename + '/' + filename2)
                 fps = 24
                 decode_all_video = True
+                frames = resize_frames(frames, (self.im_res, self.im_res))
 
             # If decoding failed (wrong format, video is too short, and etc),
             # select another video.
@@ -379,10 +403,8 @@ class AudiosetDataset(Dataset):
 
             frames = torch.stack(frames_list, dim=0)
             frames = frames.squeeze(0)
-            if self.mode in ["test"]:
-                return frames
-            else:
-                return frames
+
+            return frames
         else:
             raise RuntimeError(
                 "Failed to fetch video after {} retries.".format(self._num_retries)
@@ -430,18 +452,18 @@ class AudiosetDataset(Dataset):
             if (self.mode not in ["pretrain", "finetune"] or len(asp) == 0)
             else asp
         )
-        frames = utils.spatial_sampling(
-            frames,
-            spatial_idx=spatial_sample_index,
-            min_scale=min_scale,
-            max_scale=max_scale,
-            crop_size=crop_size,
-            random_horizontal_flip=self.pretrain_rand_flip,
-            inverse_uniform_sampling=False,
-            aspect_ratio=relative_aspect,
-            scale=relative_scales,
-            motion_shift=False,
-        )
+        # frames = utils.spatial_sampling(
+        #     frames,
+        #     spatial_idx=spatial_sample_index,
+        #     min_scale=min_scale,
+        #     max_scale=max_scale,
+        #     crop_size=crop_size,
+        #     random_horizontal_flip=self.pretrain_rand_flip,
+        #     inverse_uniform_sampling=False,
+        #     aspect_ratio=relative_aspect,
+        #     scale=relative_scales,
+        #     motion_shift=False,
+        # )
 
         if self.pretrain_rand_erase_prob > 0.0:
             erase_transform = RandomErasing(
