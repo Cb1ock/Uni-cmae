@@ -36,7 +36,7 @@ parser.add_argument("--data-test", type=str, default=None, help="test data json"
 parser.add_argument("--label-csv", type=str, default='', help="csv with class labels")
 parser.add_argument("--n_class", type=int, default=527, help="number of classes")
 parser.add_argument("--model", type=str, default='ast', help="the model used")
-parser.add_argument("--dataset", type=str, default="audioset", help="the dataset used", choices=["audioset", "esc50", "MAFW", "fsd50k", "vggsound", "epic", "k400"])
+parser.add_argument("--dataset", type=str, default="audioset", help="the dataset used", choices=["audioset", "esc50", "MAFW", "DFEW","fsd50k", "vggsound", "epic", "k400"])
 parser.add_argument("--dataset_mean", type=float, help="the dataset mean, used for input normalization")
 parser.add_argument("--dataset_std", type=float, help="the dataset std, used for input normalization")
 parser.add_argument("--target_length", type=int, help="the input length in frames")
@@ -68,6 +68,7 @@ parser.add_argument("--wa_end", type=int, default=10, help="which epoch to end w
 
 parser.add_argument("--n-print-steps", type=int, default=100, help="number of steps to print statistics")
 parser.add_argument('--save_model', help='save the model or not', type=ast.literal_eval)
+parser.add_argument('--drop_path', type=float, default=0.0, help='Stochastic depth rate')
 
 parser.add_argument("--mixup", type=float, default=0, help="how many (0-1) samples need to be mixup during training")
 parser.add_argument("--balance", type=str, default=None, help="use balanced sampling or not")
@@ -174,7 +175,7 @@ if args.data_test != None:
 
 if args.model == 'uni-cmae-ft':
     print('finetune a uni model with 12 layers')
-    audio_model = models.Uni_CMAEFT(label_dim=args.n_class, encoder_depth=12, img_size=160)
+    audio_model = models.Uni_CMAEFT(label_dim=args.n_class, encoder_depth=12, drop_path=args.drop_path,img_size=160)
 else:
     raise ValueError('model not supported')
 

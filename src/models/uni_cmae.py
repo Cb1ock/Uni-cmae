@@ -123,7 +123,7 @@ class Uni_CMAE(nn.Module):
     """ CAV-MAE Model
     """
     def __init__(self, img_size=224, audio_length=1024, patch_size=16, in_chans=3,
-                 embed_dim=768, num_frames=16, t_patch_size=2, encoder_depth=12, num_heads=12,
+                 embed_dim=768, num_frames=16, t_patch_size=2, encoder_depth=12, num_heads=12, drop_path = 0.,
                  decoder_embed_dim=384, decoder_depth=4, decoder_num_heads=6,
                  mlp_ratio=4., norm_layer=nn.LayerNorm, norm_pix_loss=False, tr_pos=False,pred_t_dim=8,bidirect_contrast=False):
         super().__init__()
@@ -153,7 +153,7 @@ class Uni_CMAE(nn.Module):
         self.pos_embed_v = nn.Parameter(torch.zeros(1, self.patch_embed_v.t_grid_size, int(self.patch_embed_v.num_patches/self.patch_embed_v.t_grid_size), embed_dim), requires_grad=tr_pos)  # 时空联合位置编码
 
         # Main ViT Block
-        self.blocks = nn.ModuleList([Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, qk_scale=None, norm_layer=norm_layer) for i in range(encoder_depth)])
+        self.blocks = nn.ModuleList([Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, qk_scale=None, norm_layer=norm_layer, drop_path=drop_path) for i in range(encoder_depth)])
 
         # independent normalization layer for audio, visual, and audio-visual
         self.norm_a, self.norm_v, self.norm = norm_layer(embed_dim), norm_layer(embed_dim), norm_layer(embed_dim)
@@ -600,7 +600,7 @@ class Uni_CMAE(nn.Module):
 # the finetuned CAV-MAE model
 class Uni_CMAEFT(nn.Module):
     def __init__(self, label_dim, img_size=224, audio_length=1024, patch_size=16, in_chans=3,
-                 embed_dim=768, encoder_depth=12, num_heads=12, mlp_ratio=4., norm_layer=nn.LayerNorm, tr_pos=True,
+                 embed_dim=768, encoder_depth=12, num_heads=12, mlp_ratio=4., norm_layer=nn.LayerNorm, tr_pos=True, drop_path = 0.,
                  pred_t_dim=16, t_patch_size=2, num_frames=16):
         super().__init__()
         timm.models.vision_transformer.Block = Block
@@ -624,7 +624,7 @@ class Uni_CMAEFT(nn.Module):
         self.pos_embed_v_s = nn.Parameter(torch.zeros(1, int(self.patch_embed_v.num_patches/self.patch_embed_v.t_grid_size), embed_dim),requires_grad=tr_pos)  # 空间位置编码
         self.pos_embed_v = nn.Parameter(torch.zeros(1, self.patch_embed_v.t_grid_size, int(self.patch_embed_v.num_patches/self.patch_embed_v.t_grid_size), embed_dim), requires_grad=tr_pos)  # 时空联合位置编码
 
-        self.blocks = nn.ModuleList([Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, qk_scale=None, norm_layer=norm_layer) for i in range(encoder_depth)])
+        self.blocks = nn.ModuleList([Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, qk_scale=None, norm_layer=norm_layer, drop_path = drop_path) for i in range(encoder_depth)])
         
         self.norm_a = norm_layer(embed_dim)
         self.norm_v = norm_layer(embed_dim)

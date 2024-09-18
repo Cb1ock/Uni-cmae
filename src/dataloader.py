@@ -208,7 +208,7 @@ class AudiosetDataset(Dataset):
         datum['labels'] = np_data[3]
         return datum
 
-    def get_video(self, filename, filename2=None, mix_lambda=1):
+    def get_video(self, filename):
         """
         Given the video index, return the list of frames, label, and video
         index if the video can be fetched and decoded successfully, otherwise
@@ -306,7 +306,7 @@ class AudiosetDataset(Dataset):
                         frames_resized[t] = resized_frame_hwc
                     return frames_resized
                 
-                frames = decoder.load_frames_from_folder(filename + '/' + filename2)
+                frames = decoder.load_frames_from_folder(filename)
                 fps = 24
                 decode_all_video = True
                 frames = resize_frames(frames, (self.im_res, self.im_res))
@@ -409,6 +409,14 @@ class AudiosetDataset(Dataset):
             raise RuntimeError(
                 "Failed to fetch video after {} retries.".format(self._num_retries)
             )
+        
+    def video_mixup(self, filename1, filename2, mix_lambda = 1):
+        if self.mode in ["pretrain", "finetune"]:
+            frames1 = self.get_video(filename1)
+            frames2 = self.get_video(filename2)
+            frames = mix_lambda * frames1 + (1 - mix_lambda) * frames2
+        
+        return frames
 
     def _aug_frame(
         self,
@@ -548,10 +556,10 @@ class AudiosetDataset(Dataset):
                 fbank = torch.zeros([self.target_length, 128]) + 0.01
                 print('there is an error in loading audio')
             try:
-                image = self.get_video(self.randselect_img(datum['id'], datum['video_path']), self.randselect_img(mix_datum['id'], datum['video_path']), mix_lambda)
+                image = self.video_mixup(datum['video_path'], mix_datum['video_path'], mix_lambda)
             except:
-                image = torch.zeros([3, self.im_res, self.im_res]) + 0.01
-                print('there is an error in loading image')
+                image = torch.zeros([3, 16, self.im_res, self.im_res]) + 0.01
+                print('there is an error in loading video')
             label_indices = np.zeros(self.label_num) + (self.label_smooth / self.label_num)
             for label_str in datum['labels'].split(','):
                 label_indices[int(self.index_dict[label_str])] += mix_lambda * (1.0 - self.label_smooth)
@@ -568,7 +576,7 @@ class AudiosetDataset(Dataset):
                 fbank = torch.zeros([self.target_length, 128]) + 0.01
                 print('there is an error in loading audio')
             #try:
-            image = self.get_video(datum['video_path'], datum['id'], 0)
+            image = self.get_video(datum['video_path'])
             # except:
             #     image = torch.zeros([3, 16, self.im_res, self.im_res]) + 0.01
             #     print('there is an error in loading image')
