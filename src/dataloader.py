@@ -415,6 +415,7 @@ class AudiosetDataset(Dataset):
             frames1 = self.get_video(filename1)
             frames2 = self.get_video(filename2)
             frames = mix_lambda * frames1 + (1 - mix_lambda) * frames2
+            frames = frames - frames.mean()
         
         return frames
 

@@ -36,7 +36,7 @@ parser.add_argument("--data-test", type=str, default=None, help="test data json"
 parser.add_argument("--label-csv", type=str, default='', help="csv with class labels")
 parser.add_argument("--n_class", type=int, default=527, help="number of classes")
 parser.add_argument("--model", type=str, default='ast', help="the model used")
-parser.add_argument("--dataset", type=str, default="audioset", help="the dataset used", choices=["audioset", "esc50", "MAFW", "DFEW","fsd50k", "vggsound", "epic", "k400"])
+parser.add_argument("--dataset", type=str, default="audioset", help="the dataset used", choices=["audioset", "esc50", "MAFW", "DFEW","CREMA-D","fsd50k", "vggsound", "epic", "k400"])
 parser.add_argument("--dataset_mean", type=float, help="the dataset mean, used for input normalization")
 parser.add_argument("--dataset_std", type=float, help="the dataset std, used for input normalization")
 parser.add_argument("--target_length", type=int, help="the input length in frames")
@@ -46,7 +46,7 @@ parser.add_argument('--num_tests', default=1, type=int, metavar='N', help='numbe
 
 parser.add_argument("--exp-dir", type=str, default="", help="directory to dump experiments")
 parser.add_argument('--lr', '--learning-rate', default=0.001, type=float, metavar='LR', help='initial learning rate')
-parser.add_argument("--optimizer", type=str, default="adam", help="training optimizer", choices=["sgd", "adam"])
+parser.add_argument("--optimizer", type=str, default="adam", help="training optimizer", choices=["adam","sgd","sgd+momentum","adamw"])
 parser.add_argument('-b', '--batch-size', default=48, type=int, metavar='N', help='mini-batch size')
 parser.add_argument('-w', '--num-workers', default=32, type=int, metavar='NW', help='# of workers for dataloading (default: 32)')
 parser.add_argument("--n-epochs", type=int, default=10, help="number of maximum training epochs")
