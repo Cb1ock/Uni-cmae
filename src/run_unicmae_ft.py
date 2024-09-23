@@ -33,7 +33,7 @@ parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFo
 parser.add_argument("--data-train", type=str, default='', help="training data json")
 parser.add_argument("--data-val", type=str, default='', help="validation data json")
 parser.add_argument("--data-test", type=str, default=None, help="test data json")
-parser.add_argument("--label-csv", type=str, default='', help="csv with class labels")
+parser.add_argument("--label_csv", type=str, default='', help="csv with class labels")
 parser.add_argument("--n_class", type=int, default=527, help="number of classes")
 parser.add_argument("--model", type=str, default='ast', help="the model used")
 parser.add_argument("--dataset", type=str, default="audioset", help="the dataset used", choices=["audioset", "esc50", "MAFW", "DFEW","fsd50k", "vggsound", "epic", "k400"])
@@ -226,7 +226,7 @@ if args.wa == True:
     sdA = wa_model(args.exp_dir, start_epoch=args.wa_start, end_epoch=args.wa_end)
     torch.save(sdA, args.exp_dir + "/models/audio_model_wa.pth")
     # 删除其他模型文件
-    for epoch in range(args.wa_start, args.wa_end + 1):
+    for epoch in range(0, args.n_epochs ):
         os.remove(args.exp_dir + '/models/audio_model.' + str(epoch) + '.pth')
 else:
     # 如果没有加权平均，使用最佳检查点
@@ -236,4 +236,4 @@ msg = audio_model.load_state_dict(sdA, strict=True)
 print(msg)
 audio_model.eval()
 
-test(audio_model, test_loader, args, num_tests=args.num_tests)
+test(audio_model, test_loader, args, num_tests=args.num_tests, label_csv=args.label_csv)

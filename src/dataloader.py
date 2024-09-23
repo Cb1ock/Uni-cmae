@@ -415,7 +415,7 @@ class AudiosetDataset(Dataset):
             frames1 = self.get_video(filename1)
             frames2 = self.get_video(filename2)
             frames = mix_lambda * frames1 + (1 - mix_lambda) * frames2
-        
+            frames = frames - frames.mean()
         return frames
 
     def _aug_frame(
@@ -544,10 +544,15 @@ class AudiosetDataset(Dataset):
     def __getitem__(self, index): # video shape:(B, C, T, H, W), audio shape:(B, T, F)
         datum = self.data[index]
         datum = self.decode_data(datum)
+        if self.dataset == 'MAFW':
+            datum['video_path'] = datum['video_path'] + "/" + datum['id']
         if random.random() < self.mixup: # TODO：mixup fix
             mix_sample_idx = random.randint(0, self.num_samples-1)
             mix_datum = self.data[mix_sample_idx]
             mix_datum = self.decode_data(mix_datum)
+
+            if self.dataset == 'MAFW':
+                mix_datum['video_path'] = mix_datum['video_path'] + "/" + mix_datum['id']
             # get the mixed fbank
             mix_lambda = np.random.beta(10, 10)
             try:

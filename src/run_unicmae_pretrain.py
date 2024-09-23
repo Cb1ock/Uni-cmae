@@ -29,10 +29,10 @@ parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFo
 parser.add_argument("--data-train", type=str, default='', help="training data json")
 parser.add_argument("--data-val", type=str, default='', help="validation data json")
 parser.add_argument("--data-eval", type=str, default=None, help="evaluation data json")
-parser.add_argument("--label-csv", type=str, default='', help="csv with class labels")
+parser.add_argument("--label_csv", type=str, default='', help="csv with class labels")
 parser.add_argument("--n_class", type=int, default=527, help="number of classes")
 parser.add_argument("--model", type=str, default='ast', help="the model used")
-parser.add_argument("--dataset", type=str, default="audioset", help="the dataset used", choices=["audioset", "esc50", "speechcommands", "fsd50k", "vggsound", "epic", "k400", "msrvtt"])
+parser.add_argument("--dataset", type=str, default="audioset", help="the dataset used", choices=["audioset", "voxceleb2", "speechcommands", "fsd50k", "vggsound", "epic", "k400", "msrvtt"])
 parser.add_argument("--dataset_mean", type=float, help="the dataset audio spec mean, used for input normalization")
 parser.add_argument("--dataset_std", type=float, help="the dataset audio spec std, used for input normalization")
 parser.add_argument("--target_length", type=int, help="the input length in frames")
@@ -57,7 +57,6 @@ parser.add_argument("--n-print-steps", type=int, default=100, help="number of st
 parser.add_argument('--save_model', help='save the model or not', type=ast.literal_eval)
 
 parser.add_argument("--mixup", type=float, default=0, help="how many (0-1) samples need to be mixup during training")
-parser.add_argument("--bal", type=str, default=None, help="use balanced sampling or not")
 
 parser.add_argument("--pred_t_dim", type=int, default=8, help="the number of frames to predict in the future")
 parser.add_argument("--encoder_depth", type=int, default=12, help="the depth of the encoder")
@@ -138,22 +137,10 @@ def collate_fn(batch):
 
     return collated_fbank, collated_image, labels
 
-if args.bal == 'bal':
-    print('balanced sampler is being used')
-    if args.weight_file == None:
-        samples_weight = np.loadtxt(args.data_train[:-5]+'_weight.csv', delimiter=',')
-    else:
-        samples_weight = np.loadtxt(args.data_train[:-5] + '_' + args.weight_file + '.csv', delimiter=',')
-    sampler = WeightedRandomSampler(samples_weight, len(samples_weight), replacement=True)
 
-    train_loader = torch.utils.data.DataLoader(
-        dataloader.AudiosetDataset(args.data_train, label_csv=args.label_csv, audio_conf=audio_conf,video_conf=video_conf),
-        batch_size=args.batch_size, sampler=sampler, num_workers=args.num_workers, pin_memory=True, drop_last=True, collate_fn=collate_fn)
-else:
-    print('balanced sampler is not used')
-    train_loader = torch.utils.data.DataLoader(
-        dataloader.AudiosetDataset(args.data_train, label_csv=args.label_csv, audio_conf=audio_conf,video_conf=video_conf),
-        batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True, drop_last=True, collate_fn=collate_fn)
+train_loader = torch.utils.data.DataLoader(
+    dataloader.AudiosetDataset(args.data_train, label_csv=args.label_csv, audio_conf=audio_conf,video_conf=video_conf),
+    batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True, drop_last=True, collate_fn=collate_fn)
 
 val_loader = torch.utils.data.DataLoader(
     dataloader.AudiosetDataset(args.data_val, label_csv=args.label_csv, audio_conf=val_audio_conf,video_conf=video_conf),

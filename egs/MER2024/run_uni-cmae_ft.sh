@@ -46,7 +46,7 @@ mkdir -p $exp_dir
 
 CUDA_CACHE_DISABLE=1 CUDA_VISIBLE_DEVICES=3 python -W ignore ../../src/run_unicmae_ft.py --model ${model} --dataset ${dataset} \
 --data-train ${tr_data} --data-val ${te_data} --exp-dir $exp_dir \
---label-csv ${label_csv} --n_class 6 \
+--label_csv ${label_csv} --n_class 6 \
 --lr $lr --n-epochs ${epoch} --batch-size $batch_size --save_model True \
 --freqm $freqm --timem $timem --mixup ${mixup} --bal ${bal} --im_res 160 --dataset_type video \
 --label_smooth ${label_smooth} \

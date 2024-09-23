@@ -54,7 +54,7 @@ pretrain_path="/data/hao/model/best_audio_model.pth"
 
 #     CUDA_CACHE_DISABLE=1 CUDA_VISIBLE_DEVICES=3,4,5,6,7 python -W ignore ../../src/run_unicmae_ft.py --model ${model} --dataset ${dataset} \
 #     --data-train ${tr_data} --data-val ${val_data} --data-test ${data_test} --exp-dir $exp_dir \
-#     --label-csv ${label_csv} --n_class 7 --num_tests ${num_tests} \
+#     --label_csv ${label_csv} --n_class 7 --num_tests ${num_tests} \
 #     --lr $lr --n-epochs ${epoch} --batch-size $batch_size --save_model True \
 #     --freqm $freqm --timem $timem --mixup ${mixup} --balance ${balance} --im_res 160 --dataset_type frame \
 #     --label_smooth ${label_smooth} \
@@ -77,7 +77,7 @@ mkdir -p $exp_dir
 
 CUDA_CACHE_DISABLE=1 CUDA_VISIBLE_DEVICES=3,4,5,6,7 python -W ignore ../../src/run_unicmae_ft.py --model ${model} --dataset ${dataset} \
 --data-train ${tr_data} --data-val ${val_data} --data-test ${data_test} --exp-dir $exp_dir \
---label-csv ${label_csv} --n_class 7 --num_tests ${num_tests} \
+--label_csv ${label_csv} --n_class 7 --num_tests ${num_tests} \
 --lr $lr --n-epochs ${epoch} --batch-size $batch_size --save_model True \
 --freqm $freqm --timem $timem --mixup ${mixup} --balance ${balance} --im_res 160 --dataset_type frame \
 --label_smooth ${label_smooth} \

@@ -94,28 +94,30 @@ class Block(nn.Module):
                  drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm):
         super().__init__()
         self.norm1 = norm_layer(dim)
-        self.norm1_a = norm_layer(dim)
-        self.norm1_v = norm_layer(dim)
+        # self.norm1_a = norm_layer(dim)
+        # self.norm1_v = norm_layer(dim)
         self.attn = Attention(
             dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
         # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = norm_layer(dim)
-        self.norm2_a = norm_layer(dim)
-        self.norm2_v = norm_layer(dim)
+        # self.norm2_a = norm_layer(dim)
+        # self.norm2_v = norm_layer(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
 
     def forward(self, x, modality=None):
-        if modality == None:
-            x = x + self.drop_path(self.attn(self.norm1(x)))
-            x = x + self.drop_path(self.mlp(self.norm2(x)))
-        elif modality == 'a':
-            x = x + self.drop_path(self.attn(self.norm1_a(x)))
-            x = x + self.drop_path(self.mlp(self.norm2_a(x)))
-        elif modality == 'v':
-            x = x + self.drop_path(self.attn(self.norm1_v(x)))
-            x = x + self.drop_path(self.mlp(self.norm2_v(x)))
+        # if modality == None:
+        #     x = x + self.drop_path(self.attn(self.norm1(x)))
+        #     x = x + self.drop_path(self.mlp(self.norm2(x)))
+        # elif modality == 'a':
+        #     x = x + self.drop_path(self.attn(self.norm1_a(x)))
+        #     x = x + self.drop_path(self.mlp(self.norm2_a(x)))
+        # elif modality == 'v':
+        #     x = x + self.drop_path(self.attn(self.norm1_v(x)))
+        #     x = x + self.drop_path(self.mlp(self.norm2_v(x)))
+        x = x + self.drop_path(self.attn(self.norm1(x)))
+        x = x + self.drop_path(self.mlp(self.norm2(x)))
         return x
 
 # our main proposed model, for pretraining only, for finetuning, use CAVMAEFT class
@@ -359,8 +361,6 @@ class Uni_CMAE(nn.Module):
         # NOTE:shared MHSA and MLP, but independent normalization layers
         # choice 1
         for blk in self.blocks:
-            # a = blk(a, 'a')
-            # v = blk(v, 'v')
             a = blk(a)
             v = blk(v)
         # choice 2
@@ -370,21 +370,11 @@ class Uni_CMAE(nn.Module):
         #     v = blk(v)
 
         x = torch.cat((a, v), dim=1)
-
-        # unified stream, shared blocks_u, but independent normalization layers
-        # for blk in self.blocks_u:
-        #     x = blk(x)
         x = self.norm(x)
 
-        # for blk in self.blocks_u:
-        #     ca = blk(a, 'a')
-        ca = self.norm_a(a) # NOTE:由于ca实际上只参与contrastive loss的计算，所以后续并不会进入decoder，也就不会更新这个norm的参数
-
-        # for blk in self.blocks_u:
-        #     cv = blk(v, 'v')
+        ca = self.norm_a(a) # 这两个参数还是会更新的，只是你unitest的时候batchsize=1，所以对比损失为0
         cv = self.norm_v(v)
-        #         ca = x[:, :self.patch_embed_a.num_patches, :]
-        # cv = x[:, self.patch_embed_a.num_patches:, :]
+
         return x, mask_a, ids_restore_a, mask_v, ids_restore_v, ca, cv
 
     def forward_decoder(self, x, mask_a, ids_restore_a, mask_v, ids_restore_v): 

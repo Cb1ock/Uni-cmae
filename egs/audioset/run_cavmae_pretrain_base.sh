@@ -51,7 +51,7 @@ mkdir -p $exp_dir
 
 CUDA_CACHE_DISABLE=1 python -W ignore ../../src/run_cavmae_pretrain.py --model ${model} --dataset ${dataset} \
 --data-train ${tr_data} --data-val ${te_data} --exp-dir $exp_dir \
---label-csv ${label_csv} --n_class 527 \
+--label_csv ${label_csv} --n_class 527 \
 --lr $lr --n-epochs ${epoch} --batch-size $batch_size --save_model True \
 --mixup ${mixup} --bal ${bal} \
 --lrscheduler_start ${lrscheduler_start} --lrscheduler_decay ${lrscheduler_decay} --lrscheduler_step ${lrscheduler_step} \

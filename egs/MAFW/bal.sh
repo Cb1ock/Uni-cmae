@@ -13,7 +13,7 @@ cur_dir=$(pwd)
 freeze_base=False
 head_lr=50 # newly initialized ft layers uses 50 times larger than the base lr
 
-balance=no
+balance=bal
 lr=1e-5
 lr_scheduler=cosine
 warmup_epochs=2.5
@@ -22,7 +22,7 @@ lrscheduler_decay=0.5
 lrscheduler_step=1
 epoch=20
 wa=True
-wa_start=10
+wa_start=5
 wa_end=20
 
 dataset_mean=-5.081
@@ -51,7 +51,7 @@ do
     exp_dir=./exp/full-${model}-${balance}-${lr}-${lrscheduler_start}-${lrscheduler_decay}-${lrscheduler_step}-bs${batch_size}--${ftmode}-mx${mixup}-dp${drop_path}-fz${freeze_base}-h${head_lr}-war/fold${fold}
     mkdir -p $exp_dir
 
-    CUDA_CACHE_DISABLE=1 CUDA_VISIBLE_DEVICES=0,1,2,3 python -W ignore ../../src/run_unicmae_ft.py --model ${model} --dataset ${dataset} \
+    CUDA_CACHE_DISABLE=1 CUDA_VISIBLE_DEVICES=4,5,6,7 python -W ignore ../../src/run_unicmae_ft.py --model ${model} --dataset ${dataset} \
     --data-train ${tr_data} --data-val ${val_data} --data-test ${data_test} --exp-dir $exp_dir \
     --label_csv ${label_csv} --n_class 11 --num_tests ${num_tests} \
     --lr $lr --n-epochs ${epoch} --batch-size $batch_size --save_model True \

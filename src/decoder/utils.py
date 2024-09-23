@@ -160,7 +160,6 @@ def random_crop_with_roi(frames, crop_bottom, crop_left, crop_right):
     """
     crop_size = 160
     _, h, w, _ = frames.shape
-    print(f'frames.shape: {frames.shape}')
     # Define the ROI boundaries
     roi_left = crop_left
     roi_right = w - crop_right
@@ -182,12 +181,9 @@ def random_crop_with_roi(frames, crop_bottom, crop_left, crop_right):
     # Randomly select the top-left corner within valid ranges
     x1 = random.randint(int(x1_min), int(x1_max))
     y1 = random.randint(int(y1_min), int(y1_max))
-    print(f'x1 min: {x1_min}, x1 max: {x1_max}')
-    print(f'y1 min: {y1_min}, y1 max: {y1_max}')
     x2 = x1 + crop_size
     y2 = y1 + crop_size
 
-    print(f'x1: {x1}, y1: {y1}, x2: {x2}, y2: {y2}')
     # Crop the frames
     frames_cropped = frames[:, y1:y2, x1:x2, :]
 

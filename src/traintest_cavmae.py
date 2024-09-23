@@ -64,7 +64,7 @@ def train(audio_model, train_loader, test_loader, args):
     elif args.lr_scheduler == 'step':
         scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, list(range(args.lrscheduler_start, 1000, args.lrscheduler_step)),gamma=args.lrscheduler_decay)
         print('The learning rate scheduler starts at {:d} epoch with decay rate of {:.3f} every {:d} epoches'.format(args.lrscheduler_start, args.lrscheduler_decay, args.lrscheduler_step))
-    elif args.lrscheduler == 'cosine':
+    elif args.lr_scheduler == 'cosine':
         scheduler = CosineAnnealingLR(optimizer, T_max=args.n_epochs , eta_min=0)
         print('Using cosine annealing learning rate scheduler.')
 

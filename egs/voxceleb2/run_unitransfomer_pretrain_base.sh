@@ -21,8 +21,7 @@ cur_dir=$(pwd)
 # pretrain_path=${cur_dir}/IN-initial.pth
 pretrain_path=${cur_dir}/ori_mae_12_for_pretrain.pth
 
-bal=None
-lr=5e-5
+lr=1e-4
 epoch=25
 lrscheduler_start=10
 lrscheduler_decay=0.5
@@ -36,23 +35,23 @@ batch_size=198
 lr_scheduler=cosine
 warmup_epochs=5
 
-dataset=audioset
+dataset=voxceleb2
 tr_data=/home/hao/Project/uni-cmae/egs/voxceleb2/train_data.json
 te_data=/home/hao/Project/uni-cmae/egs/voxceleb2/test_data.json
 label_csv=/home/hao/Project/uni-cmae/egs/voxceleb2/class_labels_indices.csv
 
 timestamp=$(date +%Y%m%d%H%M%S)
-exp_dir=./exp/testmae02-${dataset}-${model}-bal${bal}-lr${lr}-epoch${epoch}-bs${batch_size}-norm${norm_pix_loss}-c${contrast_loss_weight}-p${mae_loss_weight}-tp${tr_pos}-mr-${masking_ratio_v}-${masking_ratioa_a}--${mask_mode}-bidirect_contrast-${bidirect_contrast}
+exp_dir=./exp/testmae02-${dataset}-${model}-bal${bal}-lr${lr}-epoch${epoch}-bs${batch_size}-norm${norm_pix_loss}-c${contrast_loss_weight}-p${mae_loss_weight}-tp${tr_pos}-mr-${masking_ratio_v}-${masking_ratioa_a}--${mask_mode}-bidirect_contrast-${bidirect_contrast}-croped-cacvnorm
 mkdir -p $exp_dir
 
 #cont_model=/home/hao/Project/uni-cmae/egs/voxceleb2/exp/testmae02-audioset-uni-cmae-balNone-lr5e-5-epoch25-bs56-normTrue-c0.01-p1.0-tpFalse-mr-unstructured-0.75/models/audio_model.8.pth
 
 CUDA_CACHE_DISABLE=1 CUDA_VISIBLE_DEVICES=0,1,2,3,4,5 python -W ignore ../../src/run_unicmae_pretrain.py --model ${model} --dataset ${dataset} \
 --data-train ${tr_data} --data-val ${te_data} --exp-dir $exp_dir \
---label-csv ${label_csv} --n_class 527 --pred_t_dim ${pred_t_dim} --decoder_depth ${decoder_depth} \
+--label_csv ${label_csv} --n_class 527 --pred_t_dim ${pred_t_dim} --decoder_depth ${decoder_depth} \
 --lr $lr --n-epochs ${epoch} --batch-size $batch_size --save_model True --warmup_epochs ${warmup_epochs} \
---mixup ${mixup} --bal ${bal} \
---lrscheduler_start ${lrscheduler_start} --lrscheduler_decay ${lrscheduler_decay} --lrscheduler_step ${lrscheduler_step} \
+--mixup ${mixup} \
+--lrscheduler_start ${lrscheduler_start} --lrscheduler_decay ${lrscheduler_decay} --lrscheduler_step ${lrscheduler_step} --lr_scheduler ${lr_scheduler} \
 --dataset_mean ${dataset_mean} --dataset_std ${dataset_std} --target_length ${target_length} --noise ${noise} --warmup True \
 --norm_pix_loss ${norm_pix_loss} \
 --pretrain_path ${pretrain_path} \
