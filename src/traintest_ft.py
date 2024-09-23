@@ -69,15 +69,36 @@ def train(audio_model, train_loader, test_loader, args, n_print_steps=100):
     print('Total trainable parameter number is : {:.3f} million'.format(sum(p.numel() for p in trainables) / 1e6))
 
     print('The newly initialized MLP layer uses {:.3f} x larger lr'.format(args.head_lr))
-    optimizer = torch.optim.Adam([
+
+    if args.optimizer == 'adam':
+        optimizer = torch.optim.Adam([
         {'params': base_params, 'lr': args.lr},
         {'params': mlp_params, 'lr': args.lr * args.head_lr}
-    ], weight_decay=5e-7, betas=(0.95, 0.999))
+        ], weight_decay=5e-7, betas=(0.95, 0.999))
+
+    elif args.optimizer == 'sgd':
+        optimizer = torch.optim.SGD([
+        {'params': base_params, 'lr': args.lr},
+        {'params': mlp_params, 'lr': args.lr * args.head_lr}
+        ], weight_decay=5e-7)
+
+    elif args.optimizer == 'sgd+momentum':
+        optimizer = torch.optim.SGD([
+        {'params': base_params, 'lr': args.lr},
+        {'params': mlp_params, 'lr': args.lr * args.head_lr}
+        ], weight_decay=5e-7, momentum=0.9)
+
+    elif args.optimizer == 'adamw':
+        optimizer = torch.optim.AdamW([
+        {'params': base_params, 'lr': args.lr},
+        {'params': mlp_params, 'lr': args.lr * args.head_lr}
+        ], weight_decay=5e-7, betas=(0.95, 0.999))
+
 
     base_lr = optimizer.param_groups[0]['lr']
     mlp_lr = optimizer.param_groups[1]['lr']
     lr_list = [base_lr, mlp_lr]
-    print('base lr, mlp lr : ', base_lr, mlp_lr)
+    print('optimizer, base lr, mlp lr : ', args.optimizer, base_lr, mlp_lr)
 
     print('Total newly initialized MLP parameter number is : {:.3f} million'.format(sum(p.numel() for p in mlp_params) / 1e6))
     print('Total pretrained backbone parameter number is : {:.3f} million'.format(sum(p.numel() for p in base_params) / 1e6))
