@@ -30,7 +30,7 @@ from collections import Counter
 print("I am process %s, running on %s: starting (%s)" % (os.getpid(), os.uname()[1], time.asctime()))
 
 parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-parser.add_argument("--data-train", type=str, default='', help="training data json")
+parser.add_argument("--data_train", type=str, default='', help="training data json")
 parser.add_argument("--data-val", type=str, default='', help="validation data json")
 parser.add_argument("--data-test", type=str, default=None, help="test data json")
 parser.add_argument("--label_csv", type=str, default='', help="csv with class labels")
@@ -70,6 +70,7 @@ parser.add_argument("--n-print-steps", type=int, default=100, help="number of st
 parser.add_argument('--save_model', help='save the model or not', type=ast.literal_eval)
 parser.add_argument('--drop_path', type=float, default=0.0, help='Stochastic depth rate')
 
+parser.add_argument('--tr_pos', help='if use trainable positional embedding', type=ast.literal_eval, default=False)
 parser.add_argument("--mixup", type=float, default=0, help="how many (0-1) samples need to be mixup during training")
 parser.add_argument("--balance", type=str, default=None, help="use balanced sampling or not")
 
@@ -131,30 +132,40 @@ def get_loader(dataset, batch_size, shuffle, num_workers, pin_memory, drop_last,
     return torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers, pin_memory=pin_memory, drop_last=drop_last)
 def get_labels_and_weights(dataset):
     """
-    获取数据集的标签和样本权重
+    获取数据集的标签和样本权重（适用于多标签数据）
     """
-    labels = []
-    for _, _, label in dataset:  # 假设dataset[i]返回(input, label)
-        labels.append(label)
+    labels_list = []
+    for _, _, label in dataset:
+        labels_list.append(label.numpy())
+    labels = np.array(labels_list)  # 形状为 (num_samples, num_classes)
     
-    class_counts = Counter(labels)
-    weights = [1.0 / class_counts[label] for label in labels]
-    return labels, weights
+    # 计算每个类别的出现次数
+    class_probs = np.mean(labels, axis=0)  # 形状为 (num_classes,)
+    
+    # 计算每个类别的权重，避免除以零
+    class_weights = 1.0 / (class_probs + 1e-6)
+    
+    # 计算每个样本的权重，样本权重等于其所属类别的权重之和
+    samples_weight = np.dot(labels, class_weights)
+    
+    return labels, samples_weight
+
 
 if args.balance == 'bal':
     print('balanced sampler is being used')
     train_dataset = dataloader.AudiosetDataset(args.data_train, label_csv=args.label_csv, audio_conf=audio_conf, video_conf=video_conf)
     
-    # 获取标签和权重
-    labels, samples_weight = get_labels_and_weights(train_dataset)
-    
-    # 创建 WeightedRandomSampler
+    if not os.path.exists(args.weight_file):
+        # 提前计算并保存样本权重
+        _, samples_weight = get_labels_and_weights(train_dataset)
+        train_data_path = args.data_train.split('.')[0]
+        np.save(f'{train_data_path}_weights.npy', samples_weight)
+
+    # 在训练时加载样本权重
+    samples_weight = np.load(args.weight_file)
+    samples_weight = torch.from_numpy(samples_weight).double()
     sampler = WeightedRandomSampler(samples_weight, len(samples_weight), replacement=True)
 
-
-    train_dataset = dataloader.AudiosetDataset(args.data_train, label_csv=args.label_csv, audio_conf=audio_conf, video_conf=video_conf)
-    
-    train_dataset = dataloader.AudiosetDataset(args.data_train, label_csv=args.label_csv, audio_conf=audio_conf, video_conf=video_conf)
     if args.debug:
         train_dataset = Subset(train_dataset, range(100))
     
@@ -175,7 +186,7 @@ if args.data_test != None:
 
 if args.model == 'uni-cmae-ft':
     print('finetune a uni model with 12 layers')
-    audio_model = models.Uni_CMAEFT(label_dim=args.n_class, encoder_depth=12, drop_path=args.drop_path,img_size=160)
+    audio_model = models.Uni_CMAEFT(label_dim=args.n_class, encoder_depth=12, drop_path=args.drop_path,img_size=160, tr_pos=args.tr_pos)
 else:
     raise ValueError('model not supported')
 

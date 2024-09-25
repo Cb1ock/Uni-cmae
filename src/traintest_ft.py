@@ -17,7 +17,7 @@ import numpy as np
 import pickle
 from torch.cuda.amp import autocast,GradScaler
 
-def train(audio_model, train_loader, test_loader, args, n_print_steps=100):
+def train(audio_model, train_loader, val_loader, args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print('running on ' + str(device))
     torch.set_grad_enabled(True)
@@ -80,12 +80,6 @@ def train(audio_model, train_loader, test_loader, args, n_print_steps=100):
         optimizer = torch.optim.SGD([
         {'params': base_params, 'lr': args.lr},
         {'params': mlp_params, 'lr': args.lr * args.head_lr}
-        ], weight_decay=5e-7)
-
-    elif args.optimizer == 'sgd+momentum':
-        optimizer = torch.optim.SGD([
-        {'params': base_params, 'lr': args.lr},
-        {'params': mlp_params, 'lr': args.lr * args.head_lr}
         ], weight_decay=5e-7, momentum=0.9)
 
     elif args.optimizer == 'adamw':
@@ -115,11 +109,23 @@ def train(audio_model, train_loader, test_loader, args, n_print_steps=100):
         print('Using cosine annealing learning rate scheduler.')
 
     main_metrics = args.metrics
+
+    # 加载类别权重
+    if args.balance == 'bal':
+        print(f'loading class weights from {args.weight_file}')
+        class_weights = np.load(args.weight_file)
+        class_weights_tensor = torch.FloatTensor(class_weights).to(device)
+    else:
+        class_weights_tensor = None
+
+    # 选择损失函数
     if args.loss == 'BCE':
-        loss_fn = nn.BCEWithLogitsLoss()
+        loss_fn = nn.BCEWithLogitsLoss(pos_weight=class_weights_tensor) if args.balance == 'bal' else nn.BCEWithLogitsLoss()
     elif args.loss == 'CE':
-        loss_fn = nn.CrossEntropyLoss()
+        loss_fn = nn.CrossEntropyLoss(weight=class_weights_tensor) if args.balance == 'bal' else nn.CrossEntropyLoss()
+
     args.loss_fn = loss_fn
+
 
     print('Now training with dataset: {:s}, main metrics: {:s}, loss function: {:s}, learning rate scheduler: {:s}'.format(
         str(args.dataset), str(main_metrics), str(loss_fn), str(scheduler)
@@ -163,7 +169,7 @@ def train(audio_model, train_loader, test_loader, args, n_print_steps=100):
             per_sample_time.update((time.time() - end_time) / B)
             per_sample_dnn_time.update((time.time() - dnn_start_time) / B)
 
-            print_step = global_step % n_print_steps == 0
+            print_step = global_step % (n_print_steps // 20 ) == 0
             early_print_step = epoch == 0 and global_step % (n_print_steps // 10) == 0
             print_step = print_step or early_print_step
 
@@ -183,7 +189,7 @@ def train(audio_model, train_loader, test_loader, args, n_print_steps=100):
         print('start validation')
 
         # 获取验证结果和损失
-        metrics_result, valid_loss = validate(audio_model, test_loader, args)
+        metrics_result, valid_loss = validate(audio_model, val_loader, args)
 
         # 提取指标
         accuracy = metrics_result['accuracy']
@@ -226,10 +232,10 @@ def train(audio_model, train_loader, test_loader, args, n_print_steps=100):
 
         print(f'Epoch-{epoch} lr: {optimizer.param_groups[0]["lr"]}')
 
-        # 保存指标结果
-        with open(f"{exp_dir}/stats_{epoch}.pickle", 'wb') as handle:
-            pickle.dump(metrics_result, handle, protocol=pickle.HIGHEST_PROTOCOL)
-        _save_progress()
+        # # 保存指标结果
+        # with open(f"{exp_dir}/stats_{epoch}.pickle", 'wb') as handle:
+        #     pickle.dump(metrics_result, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        # _save_progress()
 
         finish_time = time.time()
         print('epoch {:d} training time: {:.3f}'.format(epoch, finish_time - begin_time))
