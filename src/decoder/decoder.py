@@ -106,21 +106,6 @@ def decode(
     Returns:
         frames (tensor): decoded frames from the video.
     """
-    """
-    解码视频并执行时间采样。
-    参数:
-        container (container): pyav 容器。
-        sampling_rate (int): 帧采样率（两个采样帧之间的间隔）。
-        num_frames (int): 要采样的帧数。
-        clip_idx (int): 如果 clip_idx 为 -1，则执行随机时间采样。如果 clip_idx 大于 -1，则将视频均匀分割为 num_clips 个片段，并选择第 clip_idx 个视频片段。
-        num_clips (int): 从给定视频中均匀采样的片段总数。
-        video_meta (dict): 包含 VideoMetaData 的字典。详情可见 `pytorch/vision/torchvision/io/_video_opt.py`。
-        target_fps (int): 输入视频可能具有不同的帧率，在帧采样之前将其转换为目标帧率。
-        max_spatial_scale (int): 保持纵横比并调整帧的大小，使较短边的大小为 max_spatial_scale。仅在 `torchvision` 后端中使用。
-    返回:
-        frames (tensor): 从视频中解码的帧。
-    """
-
     try:
         assert clip_idx >= -1, "Not valied clip_idx {}".format(clip_idx)
         # Convert the bytes to a tensor.
