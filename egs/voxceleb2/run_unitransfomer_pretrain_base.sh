@@ -41,7 +41,7 @@ te_data=test_data.json
 label_csv=class_labels_indices.csv
 
 timestamp=$(date +%Y%m%d%H%M%S)
-exp_dir=./exp/testmae02-${dataset}-${model}-bal${bal}-lr${lr}-epoch${epoch}-bs${batch_size}-norm${norm_pix_loss}-c${contrast_loss_weight}-p${mae_loss_weight}-tp${tr_pos}-mr-${masking_ratio_v}-${masking_ratioa_a}--${mask_mode}-bidirect_contrast-${bidirect_contrast}-croped-cacvnorm
+exp_dir=./exp/testmae02-${dataset}-${model}-bal${bal}-lr${lr}-epoch${epoch}-bs${batch_size}-norm${norm_pix_loss}-c${contrast_loss_weight}-p${mae_loss_weight}-tp${tr_pos}-mr-${masking_ratio_v}-${masking_ratioa_a}--${mask_mode}-bidirect_contrast-${bidirect_contrast}
 mkdir -p $exp_dir
 
 #cont_model=/home/hao/Project/uni-cmae/egs/voxceleb2/exp/testmae02-audioset-uni-cmae-balNone-lr5e-5-epoch25-bs56-normTrue-c0.01-p1.0-tpFalse-mr-unstructured-0.75/models/audio_model.8.pth
