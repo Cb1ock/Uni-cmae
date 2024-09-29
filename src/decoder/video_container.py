@@ -1,7 +1,6 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
 
-import av
 
 
 def get_video_container(path_to_vid, multi_thread_decode=False):

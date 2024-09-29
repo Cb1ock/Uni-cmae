@@ -11,8 +11,6 @@
 
 import csv
 import json
-import os.path
-import cv2
 import torchaudio
 import numpy as np
 import torch
@@ -21,11 +19,9 @@ from torch.utils.data import Dataset
 import random
 import torchvision.transforms as T
 import torchvision.transforms.functional as F
-from PIL import Image
 import PIL
 
 import decoder.decoder as decoder
-import decoder.video_container as container
 from decoder.decoder import get_start_end_idx, temporal_sampling
 from decoder.transform import create_random_augment
 from decoder.random_erasing import RandomErasing

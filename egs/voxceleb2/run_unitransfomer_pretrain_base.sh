@@ -22,7 +22,7 @@ cur_dir=$(pwd)
 pretrain_path=${cur_dir}/ori_mae_12_for_pretrain.pth
 
 lr=1e-4
-epoch=25
+epoch=100
 lrscheduler_start=10
 lrscheduler_decay=0.5
 lrscheduler_step=5
@@ -31,9 +31,9 @@ dataset_std=4.4849 # TODO: change to audioset mean and std
 target_length=1024
 noise=True
 mixup=0.0
-batch_size=198
+batch_size=250
 lr_scheduler=cosine
-warmup_epochs=5
+warmup_epochs=10
 
 dataset=voxceleb2
 tr_data=train_data.json
@@ -46,7 +46,7 @@ mkdir -p $exp_dir
 
 #cont_model=/home/hao/Project/uni-cmae/egs/voxceleb2/exp/testmae02-audioset-uni-cmae-balNone-lr5e-5-epoch25-bs56-normTrue-c0.01-p1.0-tpFalse-mr-unstructured-0.75/models/audio_model.8.pth
 
-CUDA_CACHE_DISABLE=1 CUDA_VISIBLE_DEVICES=0,3 python -W ignore ../../src/run_unicmae_pretrain.py --model ${model} --dataset ${dataset} \
+CUDA_CACHE_DISABLE=1 CUDA_VISIBLE_DEVICES=0,1 python -W ignore ../../src/run_unicmae_pretrain.py --model ${model} --dataset ${dataset} \
 --data-train ${tr_data} --data-val ${te_data} --exp-dir $exp_dir \
 --label_csv ${label_csv} --n_class 527 --pred_t_dim ${pred_t_dim} --decoder_depth ${decoder_depth} \
 --lr $lr --n-epochs ${epoch} --batch-size $batch_size --save_model True --warmup_epochs ${warmup_epochs} \
