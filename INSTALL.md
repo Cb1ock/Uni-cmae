@@ -10,4 +10,4 @@ Requirements
 - iopath `pip install -U iopath`
 - OpenCV `pip install opencv-python`
 - sklearn `pip install scikit-learn`
-- timm `pip install timm=0.3.2`, which need [fix](https://github.com/huggingface/pytorch-image-models/issues/420#issuecomment-776459842)
+- timm `pip install timm==0.3.2`, which need [fix](https://github.com/huggingface/pytorch-image-models/issues/420#issuecomment-776459842)
