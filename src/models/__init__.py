@@ -6,4 +6,5 @@
 # @File    : __init__.py
 
 from .uni_cmae import Uni_CMAE, Uni_CMAEFT
+from .uni_cmae_ablation import Uni_CMAE_ablation, Uni_CMAEFT_ablation
 from .audio_mdl import CAVMAEFTAudio

@@ -49,7 +49,6 @@ parser.add_argument("--lr_patience", type=int, default=2, help="how many epoch t
 parser.add_argument("--lr_scheduler", help='which lr scheduler to use', type=str, default='step', choices=['plateau', 'step', 'cosine'])
 parser.add_argument("--warmup_epochs", type=int, default=0, help="how many epoch to warmup")
 parser.add_argument("--metrics", type=str, default="mAP", help="the main evaluation metrics in finetuning", choices=["mAP", "acc"])
-parser.add_argument('--warmup', help='if use warmup learning rate scheduler', type=ast.literal_eval, default='True')
 parser.add_argument("--lrscheduler_start", default=10, type=int, help="when to start decay in finetuning")
 parser.add_argument("--lrscheduler_step", default=5, type=int, help="the number of step to decrease the learning rate in finetuning")
 parser.add_argument("--lrscheduler_decay", default=0.5, type=float, help="the learning rate decay ratio in finetuning")
@@ -60,6 +59,7 @@ parser.add_argument("--mixup", type=float, default=0, help="how many (0-1) sampl
 
 parser.add_argument("--pred_t_dim", type=int, default=8, help="the number of frames to predict in the future")
 parser.add_argument("--encoder_depth", type=int, default=12, help="the depth of the encoder")
+parser.add_argument('--fusion_depth', help='the depth of the fusion layer', type=int, default=2)
 parser.add_argument("--decoder_depth", type=int, default=8, help="the depth of the decoder")
 parser.add_argument("--bidirect_contrast", type=ast.literal_eval, default=False, help="if use bidirectional contrastive loss")
 
@@ -158,6 +158,18 @@ if args.model == 'uni-cmae':
                                 audio_length=args.target_length, 
                                 norm_pix_loss=args.norm_pix_loss, 
                                 encoder_depth=args.encoder_depth, 
+                                decoder_depth = args.decoder_depth, 
+                                tr_pos=args.tr_pos, 
+                                pred_t_dim=args.pred_t_dim,
+                                bidirect_contrast=args.bidirect_contrast,
+                                )
+elif args.model == 'uni-cmae-ablation':
+    audio_model = models.Uni_CMAE_ablation(
+                                img_size=im_res, 
+                                audio_length=args.target_length, 
+                                norm_pix_loss=args.norm_pix_loss, 
+                                encoder_depth=args.encoder_depth, 
+                                fusion_depth=args.fusion_depth,
                                 decoder_depth = args.decoder_depth, 
                                 tr_pos=args.tr_pos, 
                                 pred_t_dim=args.pred_t_dim,
