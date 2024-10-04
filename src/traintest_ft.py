@@ -169,7 +169,7 @@ def train(audio_model, train_loader, val_loader, args):
             per_sample_time.update((time.time() - end_time) / B)
             per_sample_dnn_time.update((time.time() - dnn_start_time) / B)
 
-            print_step = global_step % (n_print_steps // 20 ) == 0
+            print_step = global_step % n_print_steps == 0
             early_print_step = epoch == 0 and global_step % (n_print_steps // 10) == 0
             print_step = print_step or early_print_step
 
@@ -318,6 +318,9 @@ def test(audio_model, test_loader, args, num_tests=10):
         audio_model = nn.DataParallel(audio_model)
     audio_model = audio_model.to(device)
     audio_model.eval()
+    all_metrics = []
+    all_losses = []
+    all_stats = []
 
     for test_idx in range(num_tests):
         batch_time = AverageMeter()
@@ -349,11 +352,27 @@ def test(audio_model, test_loader, args, num_tests=10):
 
             stats, target_labels, predictions = calculate_stats(audio_output, target)
             metrics_result = calculate_war_uar(stats, target_labels, predictions)
+            all_metrics.append(metrics_result)
+            all_losses.append(loss)
+            all_stats.append(stats)
 
         print(f"Test {test_idx + 1} Accuracy: {metrics_result['accuracy']:.6f}")
         print(f"Test {test_idx + 1} Weighted Recall (WAR): {metrics_result['weighted']['recall']:.6f}")
         print(f"Test {test_idx + 1} Macro Recall (UAR): {metrics_result['macro']['recall']:.6f}")
-        for k, v in stats.items():
-            if k != 'overall':
-                print(f"Class {k} - Precision: {v['precision']:.6f}, Recall: {v['recall']:.6f}, F1: {v['f1']:.6f}, Sample Count: {v['sample_count']}")
+        # for k, v in stats.items():
+        #     if k != 'overall':
+        #         print(f"Class {k} - Precision: {v['precision']:.6f}, Recall: {v['recall']:.6f}, F1: {v['f1']:.6f}, Sample Count: {v['sample_count']}")
         print(f"Test {test_idx + 1} Loss: {loss:.6f}")
+    
+    # 计算并输出平均指标
+    avg_accuracy = np.mean([m['accuracy'] for m in all_metrics])
+    avg_war = np.mean([m['weighted']['recall'] for m in all_metrics])
+    avg_uar = np.mean([m['macro']['recall'] for m in all_metrics])
+    avg_loss = np.mean(all_losses)
+    avg_stats = {k: {m: np.mean([s[k][m] for s in all_stats]) for m in ['precision', 'recall', 'f1']} for k in all_stats[0].keys() if k != 'overall'}
+    print(f"Average Accuracy: {avg_accuracy:.6f}")
+    print(f"Average Weighted Recall (WAR): {avg_war:.6f}")
+    print(f"Average Macro Recall (UAR): {avg_uar:.6f}")
+    for k, v in avg_stats.items():
+        print(f"Average Class {k} - Precision: {v['precision']:.6f}, Recall: {v['recall']:.6f}, F1: {v['f1']:.6f}")
+    print(f"Average Loss: {avg_loss:.6f}")

@@ -187,6 +187,9 @@ if args.data_test != None:
 if args.model == 'uni-cmae-ft':
     print('finetune a uni model with 12 layers')
     audio_model = models.Uni_CMAEFT(label_dim=args.n_class, encoder_depth=12, drop_path=args.drop_path,img_size=160, tr_pos=args.tr_pos)
+elif args.model == 'uni_cmae_ablation':
+    print('finetune a uni model with 10 shared layers and 2 fusion layers')
+    audio_model = models.Uni_CMAEFT_ablation(label_dim=args.n_class, encoder_depth=12, fusion_depth=2, drop_path=args.drop_path,img_size=160, tr_pos=args.tr_pos)
 else:
     raise ValueError('model not supported')
 
@@ -236,9 +239,6 @@ if not isinstance(audio_model, torch.nn.DataParallel):
 if args.wa == True:
     sdA = wa_model(args.exp_dir, start_epoch=args.wa_start, end_epoch=args.wa_end)
     torch.save(sdA, args.exp_dir + "/models/audio_model_wa.pth")
-    # 删除其他模型文件
-    for epoch in range(0, args.n_epochs ):
-        os.remove(args.exp_dir + '/models/audio_model.' + str(epoch) + '.pth')
 else:
     # 如果没有加权平均，使用最佳检查点
     sdA = torch.load(args.exp_dir + '/models/best_audio_model.pth', map_location='cpu')
@@ -246,5 +246,24 @@ else:
 msg = audio_model.load_state_dict(sdA, strict=True)
 print(msg)
 audio_model.eval()
+test(audio_model, test_loader, args, num_tests=args.num_tests)
 
-test(audio_model, test_loader, args, num_tests=args.num_tests, label_csv=args.label_csv)
+print('\n\n')
+print('Testing with best model weights')
+# evaluate with multiple frames
+if not isinstance(audio_model, torch.nn.DataParallel):
+    audio_model = torch.nn.DataParallel(audio_model)
+
+# 如果没有加权平均，使用最佳检查点
+_sdA = torch.load(args.exp_dir + '/models/best_audio_model.pth', map_location='cpu')
+
+msg = audio_model.load_state_dict(_sdA, strict=True)
+print(msg)
+audio_model.eval()
+test(audio_model, test_loader, args, num_tests=args.num_tests)
+
+
+# 删除其他模型文件
+for epoch in range(0, args.n_epochs + 1):
+    if os.path.exists(args.exp_dir + '/models/audio_model.' + str(epoch) + '.pth'):
+        os.remove(args.exp_dir + '/models/audio_model.' + str(epoch) + '.pth')
