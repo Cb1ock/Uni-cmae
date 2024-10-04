@@ -223,7 +223,7 @@ train(audio_model, train_loader, val_loader, args)
 def wa_model(exp_dir, start_epoch, end_epoch):
     sdA = torch.load(exp_dir + '/models/audio_model.' + str(start_epoch) + '.pth', map_location='cpu')
     model_cnt = 1
-    for epoch in range(start_epoch+1, end_epoch+1):
+    for epoch in range(start_epoch+1, end_epoch):
         sdB = torch.load(exp_dir + '/models/audio_model.' + str(epoch) + '.pth', map_location='cpu')
         for key in sdA:
             sdA[key] = sdA[key] + sdB[key]
@@ -264,6 +264,6 @@ test(audio_model, test_loader, args, num_tests=args.num_tests)
 
 
 # 删除其他模型文件
-for epoch in range(0, args.n_epochs + 1):
+for epoch in range(0, args.n_epochs):
     if os.path.exists(args.exp_dir + '/models/audio_model.' + str(epoch) + '.pth'):
         os.remove(args.exp_dir + '/models/audio_model.' + str(epoch) + '.pth')

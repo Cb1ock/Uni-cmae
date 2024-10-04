@@ -137,7 +137,7 @@ def train(audio_model, train_loader, val_loader, args):
     print("start training...")
     result = np.zeros([args.n_epochs, 4])
 
-    while epoch < args.n_epochs + 1:
+    while epoch < args.n_epochs :
         begin_time = time.time()
         end_time = time.time()
         audio_model.train()
