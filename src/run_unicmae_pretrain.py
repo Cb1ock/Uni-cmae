@@ -205,13 +205,13 @@ if args.pretrain_path != 'None':
     print('now load mae pretrained weights from ', args.pretrain_path)
     print(msg)
 
-# if args.cont_model != None:
-#     print('now load pretrained weights from : ' + args.cont_model)
-#     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-#     sdA = torch.load(args.cont_model, map_location=device)
-#     if isinstance(audio_model, torch.nn.DataParallel) == False:
-#         audio_model = torch.nn.DataParallel(audio_model)
-#     audio_model.load_state_dict(sdA, strict=True)
+if args.cont_model != None:
+    print('now load pretrained weights from : ' + args.cont_model)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    sdA = torch.load(args.cont_model, map_location=device)
+    if isinstance(audio_model, torch.nn.DataParallel) == False:
+        audio_model = torch.nn.DataParallel(audio_model)
+    audio_model.load_state_dict(sdA, strict=True)
 
 print("\nCreating experiment directory: %s" % args.exp_dir)
 try:
