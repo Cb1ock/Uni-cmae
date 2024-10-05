@@ -1,5 +1,0 @@
-timm==0.4.5
-torch
-torchaudio
-torchvision
-numpy==1.21.6
