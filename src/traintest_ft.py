@@ -7,6 +7,7 @@
 
 import sys
 import os
+import csv
 import datetime
 sys.path.append(os.path.dirname(os.path.dirname(sys.path[0])))
 from utilities import *
@@ -373,6 +374,15 @@ def test(audio_model, test_loader, args, num_tests=10):
     print(f"Average Accuracy: {avg_accuracy:.6f}")
     print(f"Average Weighted Recall (WAR): {avg_war:.6f}")
     print(f"Average Macro Recall (UAR): {avg_uar:.6f}")
+
+    label_to_class = {}
+    with open(args.label_csv, 'r') as f:
+        reader = csv.reader(f)
+        next(reader)  # 跳过标题行
+        for row in reader:
+            index, mid, display_name = row
+            label_to_class[int(index)] = display_name
+
     for k, v in avg_stats.items():
-        print(f"Average Class {k} - Precision: {v['precision']:.6f}, Recall: {v['recall']:.6f}, F1: {v['f1']:.6f}")
+        print(f"Average Class {label_to_class[k]} - Precision: {v['precision']:.6f}, Recall: {v['recall']:.6f}, F1: {v['f1']:.6f}")
     print(f"Average Loss: {avg_loss:.6f}")

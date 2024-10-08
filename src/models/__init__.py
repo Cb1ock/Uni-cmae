@@ -8,3 +8,4 @@
 from .uni_cmae import Uni_CMAE, Uni_CMAEFT
 from .uni_cmae_ablation import Uni_CMAE_ablation, Uni_CMAEFT_ablation
 from .audio_mdl import CAVMAEFTAudio
+from .cav_mae import cav_mae, cav_mae_ft
