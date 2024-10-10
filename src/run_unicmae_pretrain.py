@@ -175,7 +175,7 @@ elif args.model == 'uni-cmae-ablation':
                                 pred_t_dim=args.pred_t_dim,
                                 bidirect_contrast=args.bidirect_contrast,
                                 )
-elif args.model == 'cav_mae':
+elif args.model == 'cav-mae':
     audio_model = models.cav_mae(
                                 img_size=im_res, 
                                 audio_length=args.target_length, 
