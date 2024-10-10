@@ -181,6 +181,7 @@ elif args.model == 'cav-mae':
                                 audio_length=args.target_length, 
                                 norm_pix_loss=args.norm_pix_loss, 
                                 encoder_depth=args.encoder_depth, 
+                                fusion_depth=args.fusion_depth,
                                 decoder_depth = args.decoder_depth, 
                                 tr_pos=args.tr_pos, 
                                 pred_t_dim=args.pred_t_dim,
