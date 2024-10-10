@@ -4,7 +4,7 @@
 
 export TORCH_HOME=../../pretrained_models
 
-model=uni-cmae-ablation # uni-cmae or uni-cmae-ablation
+model=cav-mae # uni-cmae or uni-cmae-ablation
 masking_ratioa_a=0.5
 masking_ratio_v=0.9
 mask_mode=unstructured # or time, or freq, or tf
@@ -31,7 +31,7 @@ dataset_std=4.4849 # TODO: change to audioset mean and std
 target_length=1024
 noise=True
 mixup=0.0
-batch_size=2
+batch_size=128
 lr_scheduler=cosine
 warmup_epochs=10
 fusion_depth=2 # if using uni-cmae-ablation
@@ -46,7 +46,7 @@ mkdir -p $exp_dir
 
 #cont_model=/home/hao/Project/uni-cmae/egs/voxceleb2/exp/testmae02-audioset-uni-cmae-balNone-lr5e-5-epoch25-bs56-normTrue-c0.01-p1.0-tpFalse-mr-unstructured-0.75/models/audio_model.8.pth
 
-CUDA_CACHE_DISABLE=1 CUDA_VISIBLE_DEVICES=0,1 python -W ignore ../../src/run_unicmae_pretrain.py --model ${model} --dataset ${dataset} \
+CUDA_CACHE_DISABLE=1 CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 python -W ignore ../../src/run_unicmae_pretrain.py --model ${model} --dataset ${dataset} \
 --data-train ${tr_data} --data-val ${te_data} --exp-dir $exp_dir \
 --label_csv ${label_csv} --n_class 527 --pred_t_dim ${pred_t_dim} --decoder_depth ${decoder_depth} --fusion_depth ${fusion_depth} \
 --lr $lr --n-epochs ${epoch} --batch-size $batch_size --save_model True --warmup_epochs ${warmup_epochs} \

@@ -175,6 +175,17 @@ elif args.model == 'uni-cmae-ablation':
                                 pred_t_dim=args.pred_t_dim,
                                 bidirect_contrast=args.bidirect_contrast,
                                 )
+elif args.model == 'cav_mae':
+    audio_model = models.cav_mae(
+                                img_size=im_res, 
+                                audio_length=args.target_length, 
+                                norm_pix_loss=args.norm_pix_loss, 
+                                encoder_depth=args.encoder_depth, 
+                                decoder_depth = args.decoder_depth, 
+                                tr_pos=args.tr_pos, 
+                                pred_t_dim=args.pred_t_dim,
+                                bidirect_contrast=args.bidirect_contrast,
+                                )
 else:
     raise ValueError('model not supported')
 
